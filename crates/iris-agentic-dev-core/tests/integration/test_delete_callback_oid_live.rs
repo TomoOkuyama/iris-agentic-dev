@@ -264,3 +264,67 @@ async fn iris_doc_put_and_iris_compile_both_carry_the_hint() {
     );
     drop(&c, &client, &[name]).await;
 }
+
+/// IMP-0002: `%OnBeforeDelete` compiles clean and is never called; `%OnDelete` is. The source hint
+/// rests on this, so the test counts both.
+#[tokio::test]
+#[ignore]
+async fn on_before_delete_compiles_and_never_runs() {
+    let Some((c, client)) = conn() else { return };
+    let name = "IadLiveCb.Before";
+    let src = format!(
+        "Class {name} Extends %Persistent
+{{
+
+Property Name As %String;
+
+Method %OnBeforeDelete() As %Status [ Private, ServerOnly = 1 ]
+{{
+    Set ^IadLiveCb(\"{name}\", \"before\") = $Get(^IadLiveCb(\"{name}\", \"before\")) + 1
+    Quit $$$OK
+}}
+
+ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly = 1 ]
+{{
+    Set ^IadLiveCb(\"{name}\", \"ondelete\") = $Get(^IadLiveCb(\"{name}\", \"ondelete\")) + 1
+    Quit $$$OK
+}}
+
+}}"
+    );
+    drop(&c, &client, &[name]).await;
+    let r = put_and_compile(&c, &client, &format!("{name}.cls"), &src).await;
+    assert!(r.success(), "it compiles clean: {:?}", r.errors);
+    let out = run(
+        &c,
+        &client,
+        &format!(
+            " Set o=##class({name}).%New(),o.Name=\"a\"\n Do o.%Save()\n \
+             Do ##class({name}).%DeleteId(o.%Id())\n \
+             Write \"~[\",$Get(^IadLiveCb(\"{name}\",\"before\"),0),\"|\",$Get(^IadLiveCb(\"{name}\",\"ondelete\"),0),\"]~\""
+        ),
+    )
+    .await;
+    let start = out.rfind("~[").expect("marker") + 2;
+    let end = out[start..].find("]~").expect("end") + start;
+    assert_eq!(&out[start..end], "0|1");
+
+    // A put without a Storage block over a compiled class asks for confirmation; start clean.
+    drop(&c, &client, &[name]).await;
+    let t = iris_agentic_dev_core::tools::IrisTools::new(Some(c.clone())).expect("IrisTools::new");
+    let r = t
+        .call_for_test(
+            "iris_doc",
+            serde_json::json!({"mode":"put","name":"IadLiveCb.Before.cls","content":src,"compile":true,"namespace":NS}),
+        )
+        .await
+        .expect("call");
+    let v: serde_json::Value =
+        serde_json::from_str(&r.content[0].as_text().unwrap().text).expect("json");
+    assert_eq!(v["compiled"], true, "{v}");
+    assert!(
+        v["hint"].as_str().unwrap_or("").contains("never calls"),
+        "{v}"
+    );
+    drop(&c, &client, &[name]).await;
+}

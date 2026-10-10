@@ -116,6 +116,7 @@ ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly =
 ```
 
 - `Method %OnDelete()` fails with #5477 (`ClassMethod must be '1'`). A `ClassMethod` whose argument is `%String` or `%Integer` fails with #5478.
+- There is no `%OnBeforeDelete` callback. A method of that name compiles clean and IRIS never calls it, so use `%OnDelete`.
 - `..%Id()` does not exist in a class method (MPP5377), and `%Id` on its own is an undefined local.
 - Prove it with a row: `%Save` one, `%DeleteId` it, then check the global with `$Data`. A clean compile proves only the signature.
 

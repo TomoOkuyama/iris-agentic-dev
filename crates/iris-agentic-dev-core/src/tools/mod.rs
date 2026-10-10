@@ -8,6 +8,17 @@ pub(crate) fn add_compile_hint(resp: &mut serde_json::Value, lines: &[String]) {
     }
 }
 
+/// Add `hint`/`hint_ref` to a successful compile when the class source has a method that compiles
+/// and never runs. Leaves an existing hint alone.
+pub(crate) fn add_source_hint(resp: &mut serde_json::Value, source: Option<&str>) {
+    if resp.get("hint").is_some() {
+        return;
+    }
+    if let Some(hint) = source.and_then(error_hints::compiled_source_hint) {
+        hint.apply(resp);
+    }
+}
+
 /// Remediation hint appended to DOCKER_REQUIRED error strings.
 /// Guides native IRIS users (no Docker) toward the HTTP/Atelier REST path.
 const DOCKER_REQUIRED_HINT: &str = " Ensure HTTP/Atelier REST is reachable: verify \
@@ -3771,10 +3782,15 @@ impl IrisTools {
                     "console": console,
                     "content": content,
                 });
-                add_compile_hint(
-                    &mut resp,
-                    &[cr.errors.as_slice(), cr.console.as_slice()].concat(),
-                );
+                if success {
+                    let source = resp["content"].as_str().map(str::to_string);
+                    add_source_hint(&mut resp, source.as_deref());
+                } else {
+                    add_compile_hint(
+                        &mut resp,
+                        &[cr.errors.as_slice(), cr.console.as_slice()].concat(),
+                    );
+                }
                 return ok_json(resp);
             }
         }
@@ -3972,7 +3988,9 @@ impl IrisTools {
         if let Some(uri) = open_uri {
             resp["open_uri"] = serde_json::Value::String(uri);
         }
-        if !success {
+        if success {
+            add_source_hint(&mut resp, content.as_deref());
+        } else {
             let lines: Vec<String> = console
                 .iter()
                 .filter_map(|l| l.as_str().map(str::to_string))

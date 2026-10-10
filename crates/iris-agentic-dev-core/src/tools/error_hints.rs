@@ -43,6 +43,7 @@ const MATCHERS: &[&str] = &[
     "reserved_word",
     "nonstandard_insert",
     "delete_callback_oid",
+    "no_before_delete_callback",
 ];
 
 /// Packages whose classes resolve only in %SYS (spec 125 research R2). `%SYS.*` and `%SYSTEM.*`
@@ -314,4 +315,16 @@ pub fn compile_error_hint(lines: &[String]) -> Option<Hint> {
     );
     let method = lines.iter().find_map(|l| re.captures(l))?[1].to_string();
     Some(Hint::new("delete_callback_oid", vec![("method", method)]))
+}
+
+/// The hint for class source that compiled, if a rule matches.
+///
+/// `%OnBeforeDelete` is not a callback `%Persistent` calls, so a method of that name compiles clean
+/// and never runs. Nothing in the compiler output says so, which is why this reads the source
+/// (CORPUS-40 re-run: two of three with-skills sessions wrote it and reported success).
+pub fn compiled_source_hint(source: &str) -> Option<Hint> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = re(r"(?m)^\s*(?:Class)?Method\s+%OnBeforeDelete\b", &RE);
+    re.is_match(source)
+        .then(|| Hint::new("no_before_delete_callback", vec![]))
 }

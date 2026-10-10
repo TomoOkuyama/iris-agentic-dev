@@ -5,8 +5,8 @@
 //! spec 129 research R1–R6), not written from memory of what IRIS says.
 
 use iris_agentic_dev_core::tools::error_hints::{
-    cited_sections, coding_pack_from, coding_pack_on, compile_error_hint, matcher_ids, rules,
-    runtime_error_hint, sql_error_hint, Hint,
+    cited_sections, coding_pack_from, coding_pack_on, compile_error_hint, compiled_source_hint,
+    matcher_ids, rules, runtime_error_hint, sql_error_hint, Hint,
 };
 use iris_agentic_dev_core::tools::{IrisTools, Toolset};
 use std::path::Path;
@@ -452,6 +452,33 @@ fn a_user_method_named_like_a_callback_prefix_is_not_matched() {
     assert!(compile_error_hint(&[class_method_error("A.B", "%OnDeleteExtra")]).is_none());
 }
 
+// ── no_before_delete_callback (CORPUS-40 re-run IMP-0002) ────────────────────────────────────
+//
+// Live on iris-dev-iris 2026.2: a class with `Method %OnBeforeDelete()` and a class method
+// `%OnDelete` compiled clean, and `%DeleteId` ran %OnDelete once and %OnBeforeDelete never.
+// Two of three with-skills sessions wrote %OnBeforeDelete and never saw an error.
+
+#[test]
+fn a_before_delete_method_gets_the_never_called_hint() {
+    for src in [
+        "Method %OnBeforeDelete() As %Status [ Private, ServerOnly = 1 ]\n{\n    Quit $$$OK\n}",
+        "  ClassMethod %OnBeforeDelete(oid As %ObjectIdentity) As %Status\n{\n    Quit $$$OK\n}",
+    ] {
+        let h = compiled_source_hint(src).unwrap_or_else(|| panic!("no hint for {src}"));
+        assert_eq!(h.rule(), "no_before_delete_callback");
+        assert!(h.text().contains("never calls"), "{}", h.text());
+        assert!(h.text().contains("%OnDelete"), "{}", h.text());
+    }
+}
+
+#[test]
+fn source_without_a_before_delete_method_gets_no_such_hint() {
+    assert!(compiled_source_hint("Method %OnBeforeSave() As %Status\n{\n Quit $$$OK\n}").is_none());
+    assert!(compiled_source_hint("// %OnBeforeDelete is not a callback\nClass A.B {}").is_none());
+    assert!(compiled_source_hint("Method %OnBeforeDeleteAll() As %Status {}").is_none());
+    assert!(compiled_source_hint("").is_none());
+}
+
 // ── the rule table (FR-003, FR-004) ──────────────────────────────────────────────────────────
 
 #[test]
@@ -461,7 +488,7 @@ fn every_rule_has_a_matcher_and_every_matcher_a_rule() {
     in_file.sort_unstable();
     in_code.sort_unstable();
     assert_eq!(in_file, in_code);
-    assert_eq!(in_file.len(), 8);
+    assert_eq!(in_file.len(), 9);
 }
 
 /// FR-003: the skill reference lives only in `hint_ref`, so turning the pack off really drops it.
@@ -488,7 +515,7 @@ fn no_hint_text_names_a_bundled_skill() {
 #[test]
 fn every_cited_skill_section_exists() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert_eq!(cited_sections().len(), 8);
+    assert_eq!(cited_sections().len(), 9);
     for (skill, heading) in cited_sections() {
         let path = root.join(format!("skills/skills/{skill}/SKILL.md"));
         let text =
@@ -520,11 +547,12 @@ fn every_placeholder_in_a_template_is_filled() {
         .unwrap(),
         runtime_error_hint(&class_missing("Security.Users"), "USER").unwrap(),
         compile_error_hint(&[oid_signature_error("Bench.CapB", "%OnDelete")]).unwrap(),
+        compiled_source_hint("Method %OnBeforeDelete() As %Status\n{\n Quit $$$OK\n}").unwrap(),
     ];
     let mut seen: Vec<&str> = cases.iter().map(|h| h.rule()).collect();
     seen.sort_unstable();
     seen.dedup();
-    assert_eq!(seen.len(), 8, "one case per rule");
+    assert_eq!(seen.len(), 9, "one case per rule");
     for h in &cases {
         assert!(
             !h.text().contains('{') && !h.text().contains('}'),

@@ -935,7 +935,9 @@ async fn do_write(
             "compile_console": compile_console,
             "content": content,
         });
-        if !compile_ok {
+        if compile_ok {
+            super::add_source_hint(&mut resp, content.as_deref());
+        } else {
             super::add_compile_hint(
                 &mut resp,
                 &[compile_errors.as_slice(), compile_console.as_slice()].concat(),

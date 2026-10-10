@@ -61,3 +61,10 @@ skill = "objectscript-guardrails"
 section = "Delete callbacks take an OID, not an id"
 why = "It gives the signature, the $$$oidPrimary(oid) line that reads the id, and the delete-a-row check."
 text = "{method} is a class method that receives the row's OID, a $LISTBUILD(id, class), not the id. Declare it `ClassMethod {method}(oid As %ObjectIdentity) As %Status` and read the id with `$$$oidPrimary(oid)`. Using oid as the id compiles and then clears the wrong node, so delete a row and check the global."
+
+[[rule]]
+id = "no_before_delete_callback"
+skill = "objectscript-guardrails"
+section = "Delete callbacks take an OID, not an id"
+why = "It names %OnDelete as the callback that runs on delete and gives its signature."
+text = "IRIS never calls %OnBeforeDelete on a %Persistent class, so this method compiles and does nothing. Use `ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status` and read the id with `$$$oidPrimary(oid)`."
