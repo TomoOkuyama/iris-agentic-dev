@@ -70,6 +70,55 @@ IRIS_PASSWORD = "SYS"
 # harness's own estimate, asks, then runs it for real. Only the arms that can change are run: the
 # baseline-with-nothing arm has passed 0 of 41 holdout tasks, so re-running it is a third of the spend
 # for an answer already known.
+# Skill tasks: each runs against its own skill, preloaded, so `skill_loaded` says whether the agent
+# read it. The pooled all-skills arm is not a treatment (no agent ever loaded a skill in it).
+# These must come before the general rule: the first rule that names the task wins.
+[[try]]
+tasks = [
+  "SKILL-01", "SKILL-02", "SKILL-03", "SKILL-04", "SKILL-05", "SKILL-06", "SKILL-07", "SKILL-08",
+  "SKILL-09", "SKILL-10", "SKILL-11", "SKILL-12", "SKILL-14", "SKILL-15", "SKILL-16", "SKILL-17",
+  "SKILL-18", "SKILL-19", "SKILL-20", "SKILL-24", "SKILL-25",
+]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+[[try]]
+tasks = ["SKILL-13", "SKILL-21", "SKILL-22", "SKILL-23"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
 [[try]]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",

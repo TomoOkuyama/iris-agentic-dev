@@ -26,6 +26,22 @@ Worklist             1. CORPUS-40  fails in both arms   <- next
 | `ledger.jsonl`            | Append-only record of what the loop did and spent. Created by the first verb that spends. |
 | `validated.json`          | A local cache of which tasks were checked sound. Not committed.                           |
 
+## When the treatment is one arm per task
+
+Some projects do not have a single treated arm. Here the skill tasks each run against their own skill,
+loaded before the session starts. Four optional keys on a `[[try]]` rule cover that:
+
+| Key               | Meaning                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `treated_prefix`  | The treated sessions are the arms starting with this, not one named arm.                    |
+| `treated_exclude` | Arms with the prefix that are not a per-task treatment (a pooled arm, for instance).        |
+| `applied_field`   | A per-session field saying the treatment was applied. The run prints "n of m".              |
+| `before_glob`     | Earlier result files to compare with, for a task the rule names that is not in the holdout. |
+| `judge_calls`     | When the pass counts do not move, a change of 25% in calls is "cheaper" or "costlier".      |
+
+An arm nobody used measures its own name. When no treated session applied the treatment, a better
+result is reported but not credited, and no commit trailer is offered.
+
 ## Using it in another project
 
 1. Copy `.improve/` into the project.

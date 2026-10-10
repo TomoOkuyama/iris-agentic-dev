@@ -93,6 +93,18 @@ class TryRule:
     env: dict
     timeout_seconds: int
     estimate_note: str
+    # A treatment that is one arm per task: the treated sessions are the arms starting with this.
+    treated_prefix: str = ""
+    # A per-session field saying whether the treatment was applied; counted so an arm nobody used is seen.
+    applied_field: str = ""
+    applied_label: str = ""
+    # Earlier run files (JSON with "runs", or one run per line) to compare with when a task is not in
+    # the full holdout. Used only for tasks this rule names.
+    before_glob: str = ""
+    # Report a change in calls when the pass counts do not move.
+    judge_calls: bool = False
+    # Arms that start with the prefix but are not a per-task treatment.
+    treated_exclude: tuple = ()
 
 
 @dataclass
@@ -179,7 +191,7 @@ _ALLOWED = {
 _ALLOWED_RULE = {"tasks", "command", "container", "start_hint", "env"}
 _ALLOWED_TRY = {
     "tasks", "command", "dry_run_flag", "repeats", "cost_regex", "env", "timeout_seconds",
-    "estimate_note",
+    "estimate_note", "treated_prefix", "applied_field", "applied_label", "before_glob", "judge_calls", "treated_exclude",
 }
 
 
@@ -241,6 +253,12 @@ def load_config(path: Path) -> Config:
             env=dict(rule.get("env", {})),
             timeout_seconds=int(rule.get("timeout_seconds", 3600)),
             estimate_note=rule.get("estimate_note", ""),
+            treated_prefix=rule.get("treated_prefix", ""),
+            applied_field=rule.get("applied_field", ""),
+            applied_label=rule.get("applied_label", ""),
+            before_glob=rule.get("before_glob", ""),
+            judge_calls=bool(rule.get("judge_calls", False)),
+            treated_exclude=tuple(rule.get("treated_exclude", [])),
         ))
     budget = raw.get("budget", {})
     return Config(
@@ -696,6 +714,9 @@ def spend_this_week(events: list, now: datetime) -> float:
 #: extra pass is a third and is within the noise of an unchanged setup; the first real run is the
 #: reason: nothing had been changed, one session in six passed, and a smaller band called it "better".
 NOISE_BAND = 0.5
+#: When the pass counts do not move, a treated arm that needs this much fewer or more calls than it
+#: did before is "cheaper" or "costlier". Calls are a noisy cost at three repeats, so the band is wide.
+CALLS_BAND = 0.25
 
 
 def judge(before: dict, after: dict) -> str:
@@ -722,20 +743,109 @@ def judge(before: dict, after: dict) -> str:
     return "better"
 
 
+
+def _read_runs(path: Path) -> list:
+    """The runs in a result file: JSON with a "runs" list, or one JSON run per line."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return []
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and isinstance(data.get("runs"), list):
+            return data["runs"]
+    except ValueError:
+        pass
+    runs = []
+    for line in text.splitlines():
+        try:
+            run = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(run, dict):
+            runs.append(run)
+    return runs
+
+
+def _is_treated(cfg: Config, rule: TryRule, arm) -> bool:
+    if rule.treated_prefix:
+        return (
+            isinstance(arm, str)
+            and arm.startswith(rule.treated_prefix)
+            and arm != cfg.baseline.arm
+            and arm not in rule.treated_exclude
+        )
+    return arm == cfg.treated.arm
+
+
+def _treated_key(cfg: Config, rule: TryRule) -> str:
+    return rule.treated_prefix or cfg.treated.arm
+
+
+def _tally(cfg: Config, rule: TryRule, runs: list, task_id: str):
+    """`({arm key: (passes, runs)}, {arm key: mean calls})` for one task, or None if a side is empty."""
+    mine = [r for r in runs if r.get("task_id") == task_id]
+    sides = {
+        cfg.baseline.arm: [r for r in mine if r.get("arm") == cfg.baseline.arm],
+        _treated_key(cfg, rule): [r for r in mine if _is_treated(cfg, rule, r.get("arm"))],
+    }
+    if any(not rows for rows in sides.values()):
+        return None
+    counts = {k: (sum(1 for r in rows if r.get("passed")), len(rows)) for k, rows in sides.items()}
+    calls = {}
+    for k, rows in sides.items():
+        values = [r["tool_calls"] for r in rows if isinstance(r.get("tool_calls"), (int, float))]
+        if values:
+            calls[k] = sum(values) / len(values)
+    return counts, calls
+
+
+def _history_before(cfg: Config, rule: TryRule, task_id: str):
+    """The comparison to beat for a task outside the full holdout: the newest earlier file that ran
+    both sides of it."""
+    if not rule.before_glob:
+        return None
+    for path in sorted(cfg.results_dir.glob(rule.before_glob), reverse=True):
+        got = _tally(cfg, rule, _read_runs(path), task_id)
+        if got:
+            return got
+    return None
+
+
+def _calls_label(before: float, after: float) -> Optional[str]:
+    if before <= 0:
+        return None
+    if after <= before * (1 - CALLS_BAND) + 1e-9:
+        return "cheaper"
+    if after >= before * (1 + CALLS_BAND) - 1e-9:
+        return "costlier"
+    return None
+
+
 def _fmt(n: float) -> str:
     return f"${n:.2f}"
 
 
 def run_try(args, cfg, nightly, validator, container_running, runner, confirm, who, git_state, out, now) -> int:
     status = build_status(cfg, now=now, nightly=nightly)
-    if status.measured_at is None:
-        out("No full holdout run found in the results directory, so there is nothing to compare a re-run to.")
-        return 2
+    history = None
     if args.task_id:
         task_id = args.task_id
-        if task_id not in status.outcomes:
+        named = next((r for r in cfg.tries if r.tasks is not None and task_id in r.tasks and r.before_glob), None)
+        if named is not None:
+            history = _history_before(cfg, named, task_id)
+            if history is None:
+                out(f"There is no earlier run of {task_id} with both sides, so there is nothing to compare a re-run to.")
+                return 2
+        elif status.measured_at is None:
+            out("No full holdout run found in the results directory, so there is nothing to compare a re-run to.")
+            return 2
+        elif task_id not in status.outcomes:
             out(f"{task_id} is not in the last holdout ({status.measured_at[:10]}).")
             return 2
+    elif status.measured_at is None:
+        out("No full holdout run found in the results directory, so there is nothing to compare a re-run to.")
+        return 2
     elif status.worklist:
         task_id = status.worklist[0].task_id
     else:
@@ -820,12 +930,19 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         except ValueError:
             record = None
     aborted = result.returncode != 0 or record is None
+    applied = None
+    if rule.applied_field and record is not None:
+        treated_rows = [r for r in record["runs"] if r.get("task_id") == task_id and _is_treated(cfg, rule, r.get("arm"))]
+        yes = sum(1 for r in treated_rows if r.get(rule.applied_field) is True)
+        no = sum(1 for r in treated_rows if r.get(rule.applied_field) is False)
+        applied = {"yes": yes, "no": no, "unknown": len(treated_rows) - yes - no}
     append_ledger(cfg, {
         "ts": stamp(), "id": imp_id, "event": "run", "who": who, "task": task_id,
         "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
         "aborted": aborted, "cap": float(cap), "repeats": repeats,
         "commit": commit, "dirty": dirty,
         "record": os.path.relpath(record_path, cfg.root),
+        **({"applied": applied} if applied is not None else {}),
     })
 
     out("")
@@ -835,35 +952,53 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         out("There is no result to judge. A partial run is not a verdict.")
         return 7
 
-    arms = {cfg.baseline.arm: cfg.baseline.label, cfg.treated.arm: cfg.treated.label}
-    before = {
-        cfg.baseline.arm: (status.outcomes[task_id]["baseline"]["passes"], status.outcomes[task_id]["baseline"]["runs"]),
-        cfg.treated.arm: (status.outcomes[task_id]["treated"]["passes"], status.outcomes[task_id]["treated"]["runs"]),
-    }
-    after = {}
-    for arm in arms:
-        rows = [r for r in record["runs"] if r.get("task_id") == task_id and r.get("arm") == arm]
-        after[arm] = (sum(1 for r in rows if r.get("passed")), len(rows))
-    if any(runs == 0 for _, runs in after.values()):
+    tkey = _treated_key(cfg, rule)
+    arms = {cfg.baseline.arm: cfg.baseline.label, tkey: cfg.treated.label}
+    calls_before: dict = {}
+    if history is not None:
+        before, calls_before = history
+    else:
+        before = {
+            cfg.baseline.arm: (status.outcomes[task_id]["baseline"]["passes"], status.outcomes[task_id]["baseline"]["runs"]),
+            tkey: (status.outcomes[task_id]["treated"]["passes"], status.outcomes[task_id]["treated"]["runs"]),
+        }
+    tally = _tally(cfg, rule, record["runs"], task_id)
+    if tally is None:
         append_ledger(cfg, {"ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": "incomplete"})
         out("The run record has no sessions for one of the arms, so there is nothing to compare.")
         return 7
+    after, calls_after = tally
     label = judge(before, after)
+    calls = {}
+    if rule.judge_calls and tkey in calls_before and tkey in calls_after:
+        calls = {tkey: [round(calls_before[tkey], 1), round(calls_after[tkey], 1)]}
+        if label == "no change":
+            label = _calls_label(calls_before[tkey], calls_after[tkey]) or label
     append_ledger(cfg, {
         "ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": label,
         "before": {a: list(v) for a, v in before.items()}, "after": {a: list(v) for a, v in after.items()},
+        **({"calls": calls} if calls else {}),
         "record": os.path.relpath(record_path, cfg.root),
     })
     out(f"{imp_id}  {task_id}")
     for arm, name in arms.items():
         out(f"  {name:<18}was {before[arm][0]}/{before[arm][1]} passed, now {after[arm][0]}/{after[arm][1]}")
+    if calls:
+        out(f"  {'calls per session':<18}was {calls[tkey][0]:g}, now {calls[tkey][1]:g}")
+    unused = False
+    if applied is not None:
+        total = applied["yes"] + applied["no"] + applied["unknown"]
+        out(f"  {rule.applied_label or rule.applied_field} in {applied['yes']} of {total} treated sessions")
+        unused = total > 0 and applied["yes"] == 0
     out("")
     state = "uncommitted changes in the tree" if dirty else "clean tree"
     out(f"Run on commit {commit[:7]} ({state}).")
     note = " Differences smaller than half the repeats are within noise at this size." if label == "no change" else ""
     out(f"Verdict: {label}. Three repeats show a direction, not proof.{note}")
     out(f"Spent {_fmt(cost)} of the {_fmt(cap)} cap; this week {_fmt(spent_week + cost)} of {_fmt(cfg.per_week_usd)}.")
-    if label in ("fixed", "better"):
+    if label in ("fixed", "better", "cheaper") and unused:
+        out("No treated session applied the treatment, so this result measures the arm's name, not the treatment. Nothing to cite.")
+    elif label in ("fixed", "better", "cheaper"):
         out(f"To keep the change, commit it with the trailer:  Improve: {imp_id}")
     elif label == "no change":
         out("Nothing improved, so there is nothing to cite.")
