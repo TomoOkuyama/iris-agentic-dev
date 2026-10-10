@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# The improvement loop, one command. `improve status`, `improve next`. Both are free.
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
-PYTHONPATH="$ROOT" exec python3 -m tests.e2e.skill_eval.improve "$@"

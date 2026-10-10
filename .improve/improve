@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# The improvement loop, one command. `improve status`, `improve next`. Both are free.
+# Reads .improve/project.toml; run it from anywhere inside the project.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE/.."
+exec python3 "$HERE/engine/improve.py" "$@"

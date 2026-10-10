@@ -1,0 +1,65 @@
+# The adapter: everything the improvement loop needs to know about THIS project, and nothing else.
+# The engine in .improve/engine/ reads this file and has no other knowledge of the project. To use
+# the loop in another project, copy .improve/ and rewrite this file; see .improve/README.md.
+
+[project]
+name = "iris-agentic-dev"
+results_dir = "tests/e2e/results"            # where run records live
+tasks_dir = "tests/e2e/tasks/benchmark"      # where task files live, one <id>.yaml each
+ledger = ".improve/ledger.jsonl"             # append-only record of what the loop did and spent
+
+[nightly]
+workflow = "skill-regression.yml"            # the scheduled GitHub workflow that proves the harness runs
+
+[holdout]
+# A run record is a JSON file in results_dir matching this glob. It must satisfy the contract in
+# .improve/README.md. A record counts as a full holdout when it covers at least min_tasks tasks, has
+# both arms below, and has no run from an excluded side.
+record_glob = "ladder-*.json"
+min_tasks = 30
+excluded_sides = ["train"]
+published_marker = "tools -> tools+skills"   # the line of the record's `published` list to show
+transcripts_glob = "ladder-*.transcripts/{task}__*"   # relative to results_dir; {task} is the id
+
+[holdout.baseline]
+arm = "tools"
+label = "tools alone"
+
+[holdout.treated]
+arm = "tools+skills"
+label = "with skills"
+
+[environment]
+# How to ask whether a task's environment is up: the command is run with {name} replaced by a rule's
+# `container`, and the environment counts as running when {name} appears in its output.
+probe = ["docker", "ps", "--filter", "name=^/{name}$", "--format", "{{.Names}}"]
+
+[budget]
+per_try_usd = 5
+per_week_usd = 60
+
+# How to check that ONE task is itself sound (its check is false before, true after its reference
+# solution). {task} is replaced with the task id. Exit 0 means the task is sound.
+# The first rule whose `tasks` list contains the id wins; the rule without a list is the default.
+[[validate]]
+tasks = ["SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25"]
+command = ["python3", "-m", "pytest", "tests/e2e/skill_eval/test_graded_task_live.py", "-k", "ai_hub and {task}", "-q"]
+container = "iad-aihub-iris"
+start_hint = "docker start iad-aihub-iris"
+[validate.env]
+IRIS_HOST = "localhost"
+IRIS_WEB_PORT = "52781"
+IRIS_CONTAINER = "iad-aihub-iris"
+IRIS_USERNAME = "_SYSTEM"
+IRIS_PASSWORD = "SYS"
+
+[[validate]]
+command = ["python3", "-m", "pytest", "tests/e2e/skill_eval/test_graded_task_live.py", "-k", "every_committed_task_is_false_before_and_true_after and {task}", "-q"]
+container = "iris-dev-iris"
+start_hint = "docker start iris-dev-iris"
+[validate.env]
+IRIS_HOST = "localhost"
+IRIS_WEB_PORT = "52780"
+IRIS_CONTAINER = "iris-dev-iris"
+IRIS_USERNAME = "_SYSTEM"
+IRIS_PASSWORD = "SYS"
