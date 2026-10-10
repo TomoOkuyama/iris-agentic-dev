@@ -1,6 +1,13 @@
 use crate::elicitation::ElicitationStore;
 use crate::iris::connection::IrisConnection;
 
+/// Add `hint`/`hint_ref` to a compile response when the compiler output matches a rule.
+pub(crate) fn add_compile_hint(resp: &mut serde_json::Value, lines: &[String]) {
+    if let Some(hint) = error_hints::compile_error_hint(lines) {
+        hint.apply(resp);
+    }
+}
+
 /// Remediation hint appended to DOCKER_REQUIRED error strings.
 /// Guides native IRIS users (no Docker) toward the HTTP/Atelier REST path.
 const DOCKER_REQUIRED_HINT: &str = " Ensure HTTP/Atelier REST is reachable: verify \
@@ -3753,7 +3760,7 @@ impl IrisTools {
                 } else {
                     None
                 };
-                return ok_json(serde_json::json!({
+                let mut resp = serde_json::json!({
                     "success": success,
                     "target": doc_name,
                     "uploaded_from": local_src,
@@ -3763,7 +3770,12 @@ impl IrisTools {
                     "warnings": [],
                     "console": console,
                     "content": content,
-                }));
+                });
+                add_compile_hint(
+                    &mut resp,
+                    &[cr.errors.as_slice(), cr.console.as_slice()].concat(),
+                );
+                return ok_json(resp);
             }
         }
 
@@ -3959,6 +3971,13 @@ impl IrisTools {
         });
         if let Some(uri) = open_uri {
             resp["open_uri"] = serde_json::Value::String(uri);
+        }
+        if !success {
+            let lines: Vec<String> = console
+                .iter()
+                .filter_map(|l| l.as_str().map(str::to_string))
+                .collect();
+            add_compile_hint(&mut resp, &lines);
         }
 
         // Progressive disclosure (027): truncate errors array when count exceeds threshold.

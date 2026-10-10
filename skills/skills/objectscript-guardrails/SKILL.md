@@ -103,6 +103,22 @@ Return (tag %INLIST myList)               →  Return ($ListFind(myList, tag) > 
 "WHERE Tags '= ''"                        →  "WHERE Tags <> ''"
 ```
 
+## Delete callbacks take an OID, not an id
+
+`%OnDelete` and `%OnAfterDelete` are class methods, and their argument is an `%ObjectIdentity`: a `$LISTBUILD(id, class)`, not the id. The compiler checks the signature and nothing more, so using the argument as the id compiles clean and clears the wrong node.
+
+```objectscript
+ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly = 1 ]
+{
+    Kill ^App.Tracked("live", $$$oidPrimary(oid))   // or $ListGet(oid, 1)
+    Quit $$$OK
+}
+```
+
+- `Method %OnDelete()` fails with #5477 (`ClassMethod must be '1'`). A `ClassMethod` whose argument is `%String` or `%Integer` fails with #5478.
+- `..%Id()` does not exist in a class method (MPP5377), and `%Id` on its own is an undefined local.
+- Prove it with a row: `%Save` one, `%DeleteId` it, then check the global with `$Data`. A clean compile proves only the signature.
+
 ## Related skills
 
 - **objectscript-review** — more targeted checklist; use when MCP tools are available

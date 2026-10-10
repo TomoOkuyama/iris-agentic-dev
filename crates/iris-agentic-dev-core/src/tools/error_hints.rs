@@ -42,6 +42,7 @@ const MATCHERS: &[&str] = &[
     "double_quoted_string",
     "reserved_word",
     "nonstandard_insert",
+    "delete_callback_oid",
 ];
 
 /// Packages whose classes resolve only in %SYS (spec 125 research R2). `%SYS.*` and `%SYSTEM.*`
@@ -297,4 +298,20 @@ pub fn runtime_error_hint(output: &str, namespace: &str) -> Option<Hint> {
         "sys_only_class",
         vec![("class", class.to_string())],
     ))
+}
+
+/// The hint for the compiler output of one class (`console` lines and error texts), if a rule matches.
+///
+/// `%OnDelete` and `%OnAfterDelete` must be class methods whose argument is an `%ObjectIdentity`, a
+/// `$LISTBUILD(id, class)`. An agent that reads either signature error fixes the signature and then
+/// uses the argument as the id, which compiles and kills the wrong node (CORPUS-40: five of six
+/// sessions). The error is the one moment the type is on screen, so the hint goes there.
+pub fn compile_error_hint(lines: &[String]) -> Option<Hint> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = re(
+        r"Keyword signature error in [\w.]+:Method:(%On(?:After)?Delete), keyword '(?:ClassMethod|method argument/s signature)' must be",
+        &RE,
+    );
+    let method = lines.iter().find_map(|l| re.captures(l))?[1].to_string();
+    Some(Hint::new("delete_callback_oid", vec![("method", method)]))
 }

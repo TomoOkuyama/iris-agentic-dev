@@ -5,8 +5,8 @@
 //! spec 129 research R1–R6), not written from memory of what IRIS says.
 
 use iris_agentic_dev_core::tools::error_hints::{
-    cited_sections, coding_pack_from, coding_pack_on, matcher_ids, rules, runtime_error_hint,
-    sql_error_hint, Hint,
+    cited_sections, coding_pack_from, coding_pack_on, compile_error_hint, matcher_ids, rules,
+    runtime_error_hint, sql_error_hint, Hint,
 };
 use iris_agentic_dev_core::tools::{IrisTools, Toolset};
 use std::path::Path;
@@ -388,6 +388,70 @@ fn coding_pack_switch_reads_off_values() {
     }
 }
 
+// ── delete_callback_oid (CORPUS-40, transcripts 2026-10-10) ──────────────────────────────────
+//
+// Strings copied from a live compile on iris-dev-iris: `Method %OnDelete()` gives #5477 and
+// `ClassMethod %OnDelete(pId As %String)` gives #5478. Five of six sessions on CORPUS-40 read one
+// of these, fixed the signature, and killed the wrong node because the argument is an OID list.
+
+fn class_method_error(class: &str, method: &str) -> String {
+    format!(
+        "ERROR #5477: Keyword signature error in {class}:Method:{method}, keyword 'ClassMethod' must be '1'"
+    )
+}
+
+fn oid_signature_error(class: &str, method: &str) -> String {
+    format!(
+        "ERROR #5478: Keyword signature error in {class}:Method:{method}, keyword 'method argument/s signature' must be '%Library.ObjectIdentity' or its subclass"
+    )
+}
+
+#[test]
+fn a_delete_callback_given_the_wrong_signature_is_told_the_argument_is_an_oid() {
+    for method in ["%OnDelete", "%OnAfterDelete"] {
+        for msg in [
+            class_method_error("Bench.Tracked", method),
+            oid_signature_error("Bench.Tracked", method),
+        ] {
+            let h = compile_error_hint(&["Compiling class Bench.Tracked".into(), msg.clone()])
+                .unwrap_or_else(|| panic!("no hint for {msg}"));
+            assert_eq!(h.rule(), "delete_callback_oid");
+            assert!(h.text().contains(method), "{}", h.text());
+            assert!(h.text().contains("$$$oidPrimary(oid)"), "{}", h.text());
+            assert!(h.text().contains("%ObjectIdentity"), "{}", h.text());
+        }
+    }
+}
+
+#[test]
+fn the_hint_says_a_clean_compile_does_not_prove_the_id() {
+    let h = compile_error_hint(&[oid_signature_error("A.B", "%OnDelete")]).unwrap();
+    assert!(
+        h.text().contains("delete a row"),
+        "the agent stopped at the first clean compile: {}",
+        h.text()
+    );
+}
+
+#[test]
+fn other_keyword_signature_errors_get_no_oid_hint() {
+    // %OnAfterSave takes a plain Boolean; a wrong signature there is not an OID problem.
+    let m = "ERROR #5478: Keyword signature error in A.B:Method:%OnAfterSave, keyword 'method argument/s signature' must be '%Library.Boolean'";
+    assert!(compile_error_hint(&[m.into()]).is_none());
+    assert!(compile_error_hint(&[class_method_error("A.B", "%OnAfterSave")]).is_none());
+    assert!(compile_error_hint(&[
+        "ERROR #5030: An error occurred while compiling class 'A.B'".into()
+    ])
+    .is_none());
+    assert!(compile_error_hint(&[]).is_none());
+}
+
+#[test]
+fn a_user_method_named_like_a_callback_prefix_is_not_matched() {
+    assert!(compile_error_hint(&[class_method_error("A.B", "OnDelete")]).is_none());
+    assert!(compile_error_hint(&[class_method_error("A.B", "%OnDeleteExtra")]).is_none());
+}
+
 // ── the rule table (FR-003, FR-004) ──────────────────────────────────────────────────────────
 
 #[test]
@@ -397,7 +461,7 @@ fn every_rule_has_a_matcher_and_every_matcher_a_rule() {
     in_file.sort_unstable();
     in_code.sort_unstable();
     assert_eq!(in_file, in_code);
-    assert_eq!(in_file.len(), 7);
+    assert_eq!(in_file.len(), 8);
 }
 
 /// FR-003: the skill reference lives only in `hint_ref`, so turning the pack off really drops it.
@@ -424,7 +488,7 @@ fn no_hint_text_names_a_bundled_skill() {
 #[test]
 fn every_cited_skill_section_exists() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert_eq!(cited_sections().len(), 7);
+    assert_eq!(cited_sections().len(), 8);
     for (skill, heading) in cited_sections() {
         let path = root.join(format!("skills/skills/{skill}/SKILL.md"));
         let text =
@@ -455,11 +519,12 @@ fn every_placeholder_in_a_template_is_filled() {
         )
         .unwrap(),
         runtime_error_hint(&class_missing("Security.Users"), "USER").unwrap(),
+        compile_error_hint(&[oid_signature_error("Bench.CapB", "%OnDelete")]).unwrap(),
     ];
     let mut seen: Vec<&str> = cases.iter().map(|h| h.rule()).collect();
     seen.sort_unstable();
     seen.dedup();
-    assert_eq!(seen.len(), 7, "one case per rule");
+    assert_eq!(seen.len(), 8, "one case per rule");
     for h in &cases {
         assert!(
             !h.text().contains('{') && !h.text().contains('}'),

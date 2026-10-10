@@ -926,7 +926,7 @@ async fn do_write(
             None
         };
 
-        return ok_json(serde_json::json!({
+        let mut resp = serde_json::json!({
             "success": compile_ok,
             "name": name,
             "open_uri": open_uri,
@@ -934,7 +934,14 @@ async fn do_write(
             "compile_errors": compile_errors,
             "compile_console": compile_console,
             "content": content,
-        }));
+        });
+        if !compile_ok {
+            super::add_compile_hint(
+                &mut resp,
+                &[compile_errors.as_slice(), compile_console.as_slice()].concat(),
+            );
+        }
+        return ok_json(resp);
     }
 
     ok_json(serde_json::json!({"success": true, "name": name, "open_uri": open_uri}))
