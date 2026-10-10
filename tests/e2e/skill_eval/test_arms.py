@@ -549,3 +549,73 @@ def test_what_an_arm_installs_is_readable_without_running_it():
     assert installed_skill_names(TOOLS, ("iris-sql",)) == ()
     assert installed_skill_names(TOOLS_SKILLS, ("iris-sql", "a")) == ("iris-sql", "a")
     assert installed_skill_names(skill_arm("iris-sql"), ("nope",)) == ("iris-sql",)
+
+
+# --- skills alone: no iad tools, the skills preloaded -------------------------------------------
+#
+# Never measured before 2026-10-10. A skill is text, so on its own it cannot reach IRIS, but a bare
+# agent still has a shell and the iris-agentic-dev skill documents a `docker exec` fallback. Whether
+# the text is enough to stand in for the tools is an empirical question, and the answer belongs in
+# the same table as bare, tools and tools+skills.
+
+
+def test_the_skills_only_arm_has_skills_and_no_tools():
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY, SKILLS_ONLY_SKILLS
+
+    assert (SKILLS_ONLY.tools, SKILLS_ONLY.skills) == (False, True)
+    assert SKILLS_ONLY.preload is True, "an unloaded skill measures the listing, not the content"
+    assert SKILLS_ONLY.skill_names == SKILLS_ONLY_SKILLS
+    assert SKILLS_ONLY.name == "skills-only"
+
+
+def test_the_skills_only_skills_are_in_the_shipped_pack():
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY_SKILLS, _pack_skills
+
+    missing = [name for name in SKILLS_ONLY_SKILLS if name not in _pack_skills()]
+    assert not missing, f"a typo here installs nothing and publishes that as the arm's zero: {missing}"
+
+
+def test_the_default_ladder_still_has_exactly_the_three_arms():
+    """Skills-only is opt-in. A bare `ladder` run must keep meaning bare, tools, tools+skills."""
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY
+
+    assert SKILLS_ONLY not in ARMS
+    assert [arm.name for arm in ARMS] == ["bare", "tools", "tools+skills"]
+
+
+def test_the_skills_only_environment_has_skills_and_registers_no_mcp_server():
+    from tests.e2e.isolated_env import IsolatedEnv
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY, configure
+
+    with IsolatedEnv(openai_api_key="sk-test") as env:
+        configure(
+            SKILLS_ONLY,
+            env,
+            iris_host="localhost",
+            iris_web_port="52780",
+            iris_container="iris-dev-iris",
+        )
+        config = json.loads(env.env_vars()["OPENCODE_CONFIG_CONTENT"])
+        assert "mcp" not in config, "this arm has no tools; a registration makes it a tools run"
+        installed = sorted(os.listdir(env.skills_dir))
+        assert installed == sorted(SKILLS_ONLY.skill_names)
+        # And the arm accepts its own environment, both ways.
+        assert_absent(SKILLS_ONLY, env.env_vars(), skills_dir=env.skills_dir)
+        assert_present(SKILLS_ONLY, env.env_vars(), skills_dir=env.skills_dir)
+
+
+def test_a_stale_mcp_registration_fails_the_skills_only_arm(tmp_path):
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY
+
+    with pytest.raises(ArmContaminated) as excinfo:
+        assert_absent(
+            SKILLS_ONLY, env_vars(mcp=True), skills_dir=skills_dir(tmp_path, "a-skill")
+        )
+    assert "mcp" in str(excinfo.value).lower()
+
+
+def test_the_skills_only_arm_needs_a_skill_on_disk(tmp_path):
+    from tests.e2e.skill_eval.arms import SKILLS_ONLY
+
+    with pytest.raises(ArmContaminated):
+        assert_present(SKILLS_ONLY, env_vars(), skills_dir=skills_dir(tmp_path))

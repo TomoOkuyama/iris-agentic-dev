@@ -33,7 +33,14 @@ from dataclasses import asdict
 
 from tests.e2e import billing
 from tests.e2e.skill_eval import graded_task, pilot, provenance
-from tests.e2e.skill_eval.arms import ARMS, TOOLS, Arm, installed_skill_names, skill_arm
+from tests.e2e.skill_eval.arms import (
+    ARMS,
+    OPTIONAL_ARMS,
+    TOOLS,
+    Arm,
+    installed_skill_names,
+    skill_arm,
+)
 from tests.e2e.skill_eval.comparison import (
     MINIMUM_FLOOR,
     Comparison,
@@ -901,12 +908,14 @@ def _main(argv=None) -> int:
         if pooled:
             print("--arm is not available on the pooled rung: its arms are built per task")
             return 2
-        known = [arm.name for arm in arms]
+        # The tools ladder can also run the opt-in arms (skills-only) when they are named.
+        offered = list(arms) + (list(OPTIONAL_ARMS) if args.ladder == "tools" else [])
+        known = [arm.name for arm in offered]
         unknown = [name for name in args.arm if name not in known]
         if unknown:
             print(f"unknown arm {unknown}; this rung has {known}")
             return 2
-        arms = [arm for arm in arms if arm.name in set(args.arm)]
+        arms = [arm for arm in offered if arm.name in set(args.arm)]
         arm_names = [arm.name for arm in arms]
 
     if args.task:

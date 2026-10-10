@@ -1148,3 +1148,35 @@ def test_arm_is_refused_on_the_pooled_rung(monkeypatch, capsys):
     code = ladder._main(["--dry-run", "--ladder", "skill", "--skill", "all", "--arm", "tools"])
     assert code == 2
     assert "pooled" in capsys.readouterr().out
+
+
+# --- the skills-only arm is opt-in on the tools ladder -------------------------------------------
+
+
+def test_the_tools_ladder_accepts_the_skills_only_arm_by_name(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "tools", "--arm", "skills-only", "--task", "CORPUS-01", "--dry-run"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "skills-only" in out and "1 arms" in out
+
+
+def test_an_unknown_arm_still_lists_what_the_rung_has(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(["--ladder", "tools", "--arm", "nonsense", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "bare" in out and "skills-only" in out
+
+
+def test_the_skill_ladder_does_not_offer_the_skills_only_arm(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "skill", "--skill", "iris-sql", "--arm", "skills-only", "--dry-run"]
+    )
+    assert code == 2

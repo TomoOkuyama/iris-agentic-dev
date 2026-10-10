@@ -70,6 +70,29 @@ BARE = Arm(name="bare", tools=False, skills=False)
 TOOLS = Arm(name="tools", tools=True, skills=False)
 TOOLS_SKILLS = Arm(name="tools+skills", tools=True, skills=True)
 
+#: The skills the skills-only arm preloads: the ones that teach an agent to reach and edit IRIS without
+#: the MCP tools (the `docker exec` fallback) and to write ObjectScript that compiles.
+SKILLS_ONLY_SKILLS = (
+    "iris-agentic-dev",
+    "iris-objectscript-eval",
+    "objectscript-guardrails",
+)
+
+#: Skills with no tools. A skill is text, so on its own it cannot reach IRIS; a bare agent still has a
+#: shell, and these skills document a `docker exec` route. Whether the text can stand in for the
+#: tools is empirical, and it was never measured. Opt-in (`--arm skills-only`), so a bare `ladder`
+#: run keeps meaning bare, tools, tools+skills.
+SKILLS_ONLY = Arm(
+    name="skills-only",
+    tools=False,
+    skills=True,
+    skill_names=SKILLS_ONLY_SKILLS,
+    preload=True,
+)
+
+#: Arms the tools ladder can run when asked for by name but does not run by default.
+OPTIONAL_ARMS: tuple[Arm, ...] = (SKILLS_ONLY,)
+
 # Ordered: each adjacent pair is one comparison. bare→tools is the tools' value, tools→tools+skills is
 # the skills' value on top of them.
 ARMS: tuple[Arm, ...] = (BARE, TOOLS, TOOLS_SKILLS)
