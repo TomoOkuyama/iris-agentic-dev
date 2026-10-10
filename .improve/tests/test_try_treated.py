@@ -222,6 +222,31 @@ def test_calls_decide_a_verdict_the_passes_leave_open(world, before_calls, after
     assert verdict["calls"]["memory+"] == [before_calls, after_calls]
 
 
+def test_calls_are_judged_against_the_baseline_arm_in_the_same_run(world):
+    # Everything got cheaper since the history (tool changes): baseline 10 -> 5, treated 20 -> 10.
+    # The treated arm is still twice the baseline, so the treatment did not get cheaper.
+    write_history(world.results_dir, "S-1", plain=(1, 1, 1), doc=(1, 1, 1), plain_calls=10, doc_calls=20)
+    go(["try", "S-1", "--yes"], world, runner=Runner(plain_calls=5, doc_calls=10))
+    verdict = next(e for e in ledger(world) if e["event"] == "verdict")
+    assert verdict["label"] == "no change"
+    assert verdict["calls"]["memory+"] == [20, 10], "the absolute means are still recorded"
+    assert verdict["relative_calls"]["memory+"] == [2.0, 2.0]
+
+
+def test_a_treatment_that_got_dearer_while_the_baseline_stood_still_is_costlier(world):
+    write_history(world.results_dir, "S-1", plain=(1, 1, 1), doc=(1, 1, 1), plain_calls=10, doc_calls=20)
+    go(["try", "S-1", "--yes"], world, runner=Runner(plain_calls=5, doc_calls=15))
+    verdict = next(e for e in ledger(world) if e["event"] == "verdict")
+    assert verdict["label"] == "costlier", "3x the baseline against 2x before"
+    assert verdict["relative_calls"]["memory+"] == [2.0, 3.0]
+
+
+def test_the_relative_figure_is_printed(world):
+    write_history(world.results_dir, "S-1", plain=(1, 1, 1), doc=(1, 1, 1), plain_calls=10, doc_calls=20)
+    _, text, _ = go(["try", "S-1", "--yes"], world, runner=Runner(plain_calls=10, doc_calls=12))
+    assert "2.0x the baseline, now 1.2x" in text
+
+
 def test_passes_win_over_calls(world):
     write_history(world.results_dir, "S-1", plain=(1, 1, 1), doc=(0, 0, 0), doc_calls=5)
     go(["try", "S-1", "--yes"], world, runner=Runner(plain=(1, 1, 1), doc=(1, 1, 1), doc_calls=40))

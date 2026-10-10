@@ -969,15 +969,23 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         return 7
     after, calls_after = tally
     label = judge(before, after)
-    calls = {}
+    calls, relative = {}, {}
     if rule.judge_calls and tkey in calls_before and tkey in calls_after:
         calls = {tkey: [round(calls_before[tkey], 1), round(calls_after[tkey], 1)]}
+        compare = (calls_before[tkey], calls_after[tkey])
+        base = cfg.baseline.arm
+        # Judged against the baseline arm of the same run, so a change that made every arm cheaper
+        # (a better tool, a faster model) is not credited to the treatment.
+        if calls_before.get(base) and calls_after.get(base):
+            compare = (calls_before[tkey] / calls_before[base], calls_after[tkey] / calls_after[base])
+            relative = {tkey: [round(compare[0], 2), round(compare[1], 2)]}
         if label == "no change":
-            label = _calls_label(calls_before[tkey], calls_after[tkey]) or label
+            label = _calls_label(*compare) or label
     append_ledger(cfg, {
         "ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": label,
         "before": {a: list(v) for a, v in before.items()}, "after": {a: list(v) for a, v in after.items()},
         **({"calls": calls} if calls else {}),
+        **({"relative_calls": relative} if relative else {}),
         "record": os.path.relpath(record_path, cfg.root),
     })
     out(f"{imp_id}  {task_id}")
@@ -985,6 +993,8 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         out(f"  {name:<18}was {before[arm][0]}/{before[arm][1]} passed, now {after[arm][0]}/{after[arm][1]}")
     if calls:
         out(f"  {'calls per session':<18}was {calls[tkey][0]:g}, now {calls[tkey][1]:g}")
+        if relative:
+            out(f"  {'against baseline':<18}was {relative[tkey][0]:.1f}x the baseline, now {relative[tkey][1]:.1f}x")
     unused = False
     if applied is not None:
         total = applied["yes"] + applied["no"] + applied["unknown"]
