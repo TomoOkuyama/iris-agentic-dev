@@ -4,13 +4,15 @@ The engine knows the loop and nothing about the project it runs in. Where result
 arms are called, how to check one task, which scheduled workflow is the nightly: all of it is in
 `.improve/project.toml`. To use the loop in another project, copy `.improve/` and rewrite that file.
 
-Two verbs, both free:
+Three verbs. The first two are free:
 
     improve status      the nightly, the last full holdout, a ranked worklist, this month's spend
     improve next [id]   take the top worklist item, check the task itself is sound, show what failed
+    improve try [id]    re-run one task after a change and say whether it helped. This one spends.
 
-Neither starts a model session or reads a credential. Anything that costs money (re-running a task,
-the weekly holdout) is a later verb that shows an estimate first and stops at a cap.
+`status` and `next` never start a model session or read a credential. `try` shows the harness's own
+estimate, asks, passes a cap to the run, and writes every step to the ledger under an `IMP-NNNN` id. The
+cap is the bound, not the estimate: estimates have run several times low.
 
 The worklist comes from the newest full holdout record: a JSON file under `results_dir` that matches
 `record_glob`, covers at least `min_tasks` tasks, has both the baseline and the treated arm, and has no
@@ -28,11 +30,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 import tomllib
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -80,6 +84,24 @@ class ValidateRule:
 
 
 @dataclass
+class TryRule:
+    tasks: Optional[tuple]
+    command: tuple
+    dry_run_flag: str
+    repeats: int
+    cost_regex: str
+    env: dict
+    timeout_seconds: int
+    estimate_note: str
+
+
+@dataclass
+class RunResult:
+    returncode: int
+    stdout: str
+
+
+@dataclass
 class Config:
     root: Path
     name: str
@@ -98,6 +120,7 @@ class Config:
     validate: tuple
     probe: tuple = ()
     transcripts_glob: str = ""
+    tries: tuple = ()
 
 
 @dataclass
@@ -154,6 +177,10 @@ _ALLOWED = {
     "budget": {"per_try_usd", "per_week_usd"},
 }
 _ALLOWED_RULE = {"tasks", "command", "container", "start_hint", "env"}
+_ALLOWED_TRY = {
+    "tasks", "command", "dry_run_flag", "repeats", "cost_regex", "env", "timeout_seconds",
+    "estimate_note",
+}
 
 
 def _strict(table: dict, allowed: set, where: str) -> None:
@@ -177,7 +204,7 @@ def load_config(path: Path) -> Config:
     root = path.parent.parent
     for table, allowed in _ALLOWED.items():
         _strict(raw.get(table, {}), allowed, table)
-    for extra in set(raw) - set(_ALLOWED) - {"validate"}:
+    for extra in set(raw) - set(_ALLOWED) - {"validate", "try"}:
         raise ConfigError(f"unknown table [{extra}]")
     project, holdout = raw.get("project", {}), raw.get("holdout", {})
     for key in ("name", "results_dir", "tasks_dir", "ledger"):
@@ -200,6 +227,21 @@ def load_config(path: Path) -> Config:
                 start_hint=rule.get("start_hint", ""),
             )
         )
+    tries = []
+    for index, rule in enumerate(raw.get("try", [])):
+        _strict(rule, _ALLOWED_TRY, f"try[{index}]")
+        if "command" not in rule:
+            raise ConfigError(f"[[try]] #{index + 1} needs a 'command'")
+        tries.append(TryRule(
+            tasks=tuple(rule["tasks"]) if "tasks" in rule else None,
+            command=tuple(rule["command"]),
+            dry_run_flag=rule.get("dry_run_flag", "--dry-run"),
+            repeats=int(rule.get("repeats", 3)),
+            cost_regex=rule.get("cost_regex", ""),
+            env=dict(rule.get("env", {})),
+            timeout_seconds=int(rule.get("timeout_seconds", 3600)),
+            estimate_note=rule.get("estimate_note", ""),
+        ))
     budget = raw.get("budget", {})
     return Config(
         root=root,
@@ -225,6 +267,7 @@ def load_config(path: Path) -> Config:
         validate=tuple(rules),
         probe=tuple(raw.get("environment", {}).get("probe", [])),
         transcripts_glob=holdout.get("transcripts_glob", ""),
+        tries=tuple(tries),
     )
 
 
@@ -243,6 +286,17 @@ def rule_for(cfg: Config, task_id: str) -> Optional[ValidateRule]:
         if rule.tasks is not None and task_id in rule.tasks:
             return rule
     for rule in cfg.validate:
+        if rule.tasks is None:
+            return rule
+    return None
+
+
+def try_rule_for(cfg: Config, task_id: str) -> Optional[TryRule]:
+    """The first rule that names the task, else the first rule with no task list."""
+    for rule in cfg.tries:
+        if rule.tasks is not None and task_id in rule.tasks:
+            return rule
+    for rule in cfg.tries:
         if rule.tasks is None:
             return rule
     return None
@@ -282,6 +336,7 @@ def _arm_summary(runs: list) -> dict:
     first = runs[0]
     return {
         "passed": passed * 2 > len(runs),
+        "passes": passed,
         "runs": len(runs),
         "tool_calls": first.get("tool_calls"),
         "seconds": first.get("seconds"),
@@ -581,6 +636,228 @@ def run_next(args, cfg, nightly, validator, container_running, out, now) -> int:
     return 0 if validation.ok else 1
 
 
+# ---- the ledger --------------------------------------------------------------------------------
+
+
+def read_ledger(cfg: Config) -> list:
+    if not cfg.ledger.exists():
+        return []
+    events = []
+    for line in cfg.ledger.read_text().splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    return events
+
+
+def append_ledger(cfg: Config, event: dict) -> None:
+    """Append-only: one line per event, never rewritten."""
+    cfg.ledger.parent.mkdir(parents=True, exist_ok=True)
+    with cfg.ledger.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+
+
+def next_imp_id(events: list) -> str:
+    top = 0
+    for event in events:
+        match = re.fullmatch(r"IMP-(\d+)", str(event.get("id", "")))
+        if match:
+            top = max(top, int(match.group(1)))
+    return f"IMP-{top + 1:04d}"
+
+
+def open_iteration(events: list, task_id: str) -> Optional[dict]:
+    """The claim on this task that no verdict has closed yet, if any."""
+    open_claim = None
+    for event in events:
+        if event.get("task") != task_id and event.get("event") != "verdict":
+            continue
+        if event.get("event") == "claim" and event.get("task") == task_id:
+            open_claim = event
+        elif event.get("event") == "verdict" and open_claim and event.get("id") == open_claim.get("id"):
+            open_claim = None
+    return open_claim
+
+
+def _iso_week(ts: str):
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).isocalendar()[:2]
+    except ValueError:
+        return None
+
+
+def spend_this_week(events: list, now: datetime) -> float:
+    week = now.isocalendar()[:2]
+    return sum(float(e.get("cost_usd") or 0) for e in events if _iso_week(str(e.get("ts", ""))) == week)
+
+
+def judge(before: dict, after: dict) -> str:
+    """One word for what a re-run says about a change. `before` and `after` map an arm to
+    `(passes, runs)`. Three repeats show a direction, not proof, and the caller says so."""
+    up = down = False
+    failing_before = []
+    for arm, (b_pass, b_runs) in before.items():
+        a_pass, a_runs = after[arm]
+        rate_b, rate_a = b_pass / b_runs, a_pass / a_runs
+        up |= rate_a > rate_b
+        down |= rate_a < rate_b
+        if rate_b < 0.5:
+            failing_before.append(arm)
+    if up and down:
+        return "mixed"
+    if down:
+        return "worse"
+    if not up:
+        return "no change"
+    if failing_before and all(after[a][0] == after[a][1] for a in failing_before):
+        return "fixed"
+    return "better"
+
+
+def _fmt(n: float) -> str:
+    return f"${n:.2f}"
+
+
+def run_try(args, cfg, nightly, validator, container_running, runner, confirm, who, out, now) -> int:
+    status = build_status(cfg, now=now, nightly=nightly)
+    if status.measured_at is None:
+        out("No full holdout run found in the results directory, so there is nothing to compare a re-run to.")
+        return 2
+    if args.task_id:
+        task_id = args.task_id
+        if task_id not in status.outcomes:
+            out(f"{task_id} is not in the last holdout ({status.measured_at[:10]}).")
+            return 2
+    elif status.worklist:
+        task_id = status.worklist[0].task_id
+    else:
+        out(f"Nothing is failing in the last holdout ({status.measured_at[:10]}), so there is nothing to try.")
+        return 0
+
+    rule = try_rule_for(cfg, task_id)
+    if rule is None:
+        out(f"The adapter has no [[try]] rule for {task_id}, so improve does not know how to re-run it.")
+        return 2
+
+    # Free checks first: never pay to run a task that is itself broken.
+    vrule = rule_for(cfg, task_id)
+    validation, _ = _validate_cached(cfg, task_id, vrule, validator, container_running)
+    if validation is None:
+        out(f"{task_id} needs {vrule.container} to check the task, and it is not running.")
+        if vrule.start_hint:
+            out(f"Start it with: {vrule.start_hint}")
+        return 3
+    if not validation.ok:
+        out(f"The task is broken: {validation.detail}")
+        out("Fix the task before spending anything on it.")
+        return 1
+
+    events = read_ledger(cfg)
+    held = open_iteration(events, task_id)
+    if held and held.get("who") != who:
+        out(f"{held['id']} on {task_id} is held by {held.get('who')} (taken {str(held.get('ts', ''))[:10]}).")
+        out("One holder per item. They can finish it, or you can pick another task.")
+        return 6
+
+    spent_week = spend_this_week(events, now)
+    left = max(cfg.per_week_usd - spent_week, 0.0)
+    if left <= 0:
+        out(f"The weekly budget is spent ({_fmt(spent_week)} of {_fmt(cfg.per_week_usd)}). Nothing runs until next week.")
+        return 5
+    cap = args.cap if args.cap is not None else cfg.per_try_usd
+    capped_by_week = cap > left
+    cap = min(cap, left)
+    repeats = args.repeats or rule.repeats
+    imp_id = held["id"] if held else next_imp_id(events)
+    record_path = cfg.results_dir / f"try-{imp_id}.json"
+
+    def fill(command):
+        values = {"task": task_id, "repeats": str(repeats), "cap": str(float(cap)), "out": str(record_path)}
+        return [part.format(**values) if "{" in part else part for part in command]
+
+    env = {**os.environ, **rule.env}
+    estimate = runner([*fill(rule.command), rule.dry_run_flag], env, 120, live=False)
+    out(f"{imp_id}: re-run {task_id}, {repeats} repeats")
+    out("")
+    out(estimate.stdout.strip())
+    if rule.estimate_note:
+        out(rule.estimate_note)
+    out("")
+    if capped_by_week:
+        out(f"Weekly budget: {_fmt(spent_week)} of {_fmt(cfg.per_week_usd)} spent, {_fmt(left)} left, so the cap is {_fmt(cap)}.")
+    else:
+        out(f"Weekly budget: {_fmt(spent_week)} of {_fmt(cfg.per_week_usd)} spent.")
+    out(f"Spend cap of {_fmt(cap)}: no session starts once measured spend reaches it (the last one can overshoot).")
+    if not args.yes and not confirm(f"Run {task_id} now? [y/N] "):
+        out("Not run. Nothing was spent and nothing was written.")
+        return 0
+
+    started = time.monotonic()
+
+    def stamp() -> str:
+        """The injected clock plus the time the run has taken, so a test's clock is the ledger's clock
+        and the week a cost lands in is the week the spending began."""
+        return (now + timedelta(seconds=time.monotonic() - started)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if not held:
+        append_ledger(cfg, {"ts": stamp(), "id": imp_id, "event": "claim", "who": who, "task": task_id})
+    result = runner(fill(rule.command), env, rule.timeout_seconds, live=True)
+    costs = re.findall(rule.cost_regex, result.stdout) if rule.cost_regex else []
+    cost = sum(float(c) for c in costs)
+    record = None
+    if record_path.exists():
+        try:
+            record = json.loads(record_path.read_text())
+        except ValueError:
+            record = None
+    aborted = result.returncode != 0 or record is None
+    append_ledger(cfg, {
+        "ts": stamp(), "id": imp_id, "event": "run", "who": who, "task": task_id,
+        "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
+        "aborted": aborted, "cap": float(cap), "repeats": repeats,
+        "record": os.path.relpath(record_path, cfg.root),
+    })
+
+    out("")
+    if aborted:
+        append_ledger(cfg, {"ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": "incomplete"})
+        out(f"The run did not finish (exit {result.returncode}). {_fmt(cost)} was spent over {len(costs)} sessions and is in the ledger.")
+        out("There is no result to judge. A partial run is not a verdict.")
+        return 7
+
+    arms = {cfg.baseline.arm: cfg.baseline.label, cfg.treated.arm: cfg.treated.label}
+    before = {
+        cfg.baseline.arm: (status.outcomes[task_id]["baseline"]["passes"], status.outcomes[task_id]["baseline"]["runs"]),
+        cfg.treated.arm: (status.outcomes[task_id]["treated"]["passes"], status.outcomes[task_id]["treated"]["runs"]),
+    }
+    after = {}
+    for arm in arms:
+        rows = [r for r in record["runs"] if r.get("task_id") == task_id and r.get("arm") == arm]
+        after[arm] = (sum(1 for r in rows if r.get("passed")), len(rows))
+    if any(runs == 0 for _, runs in after.values()):
+        append_ledger(cfg, {"ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": "incomplete"})
+        out("The run record has no sessions for one of the arms, so there is nothing to compare.")
+        return 7
+    label = judge(before, after)
+    append_ledger(cfg, {
+        "ts": stamp(), "id": imp_id, "event": "verdict", "task": task_id, "label": label,
+        "before": {a: list(v) for a, v in before.items()}, "after": {a: list(v) for a, v in after.items()},
+        "record": os.path.relpath(record_path, cfg.root),
+    })
+    out(f"{imp_id}  {task_id}")
+    for arm, name in arms.items():
+        out(f"  {name:<18}was {before[arm][0]}/{before[arm][1]} passed, now {after[arm][0]}/{after[arm][1]}")
+    out("")
+    out(f"Verdict: {label}. Three repeats show a direction, not proof.")
+    out(f"Spent {_fmt(cost)} of the {_fmt(cap)} cap; this week {_fmt(spent_week + cost)} of {_fmt(cfg.per_week_usd)}.")
+    if label in ("fixed", "better"):
+        out(f"To keep the change, commit it with the trailer:  Improve: {imp_id}")
+    else:
+        out("To undo the change, revert it; nothing else needs cleaning up.")
+    return 0
+
+
 # ---- the defaults that shell out (injected in tests) --------------------------------------------
 
 
@@ -670,6 +947,29 @@ def _make_validator(cfg: Config) -> Callable[[str], Validation]:
     return validate
 
 
+def _stream_runner(argv, env, timeout, live=False) -> RunResult:
+    """Run a command. With `live`, show its output as it arrives: a re-run can take minutes."""
+    proc = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    lines = []
+    try:
+        for line in proc.stdout:
+            if live:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            lines.append(line)
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        lines.append("improve: timed out\n")
+    return RunResult(proc.returncode if proc.returncode is not None else 1, "".join(lines))
+
+
+def _ask(prompt: str) -> bool:
+    if not sys.stdin.isatty():
+        return False  # no terminal and no --yes: not a yes
+    return input(prompt).strip().lower() in ("y", "yes")
+
+
 # ---- entry point -------------------------------------------------------------------------------
 
 
@@ -680,6 +980,9 @@ def main(
     nightly: Optional[Callable[[], Nightly]] = None,
     validator: Optional[Callable[[str], Validation]] = None,
     container_running: Optional[Callable[[str], bool]] = None,
+    runner: Optional[Callable] = None,
+    confirm: Optional[Callable[[str], bool]] = None,
+    who: Optional[str] = None,
     out: Callable[[str], None] = print,
     now: Optional[datetime] = None,
 ) -> int:
@@ -700,6 +1003,11 @@ def main(
     p_next.add_argument(
         "task_id", nargs="?", help="work this task instead of the top item"
     )
+    p_try = sub.add_parser("try", help="re-run one task after a change and say whether it helped (spends)")
+    p_try.add_argument("task_id", nargs="?", help="the task; default is the top of the worklist")
+    p_try.add_argument("--yes", action="store_true", help="skip the question (the estimate and cap are still shown)")
+    p_try.add_argument("--cap", type=float, default=None, help="dollars; default is the adapter's per-try cap")
+    p_try.add_argument("--repeats", type=int, default=None, help="repeats per arm; default is the adapter's")
     args = parser.parse_args(argv)
 
     try:
@@ -716,6 +1024,10 @@ def main(
         status = build_status(cfg, now=now, nightly=nightly)
         out(status_json(status) if args.json else render_status(status))
         return 0
+    if args.verb == "try":
+        holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
+        return run_try(args, cfg, nightly, validator, container_running, runner or _stream_runner,
+                       confirm or _ask, holder, out, now)
     return run_next(args, cfg, nightly, validator, container_running, out, now)
 
 

@@ -1102,3 +1102,49 @@ def test_a_train_report_publishes_nothing_and_says_train(monkeypatch):
     assert written["side"] == "train"
     assert written["published"] == []
     assert {record["side"] for record in written["runs"]} == {"train"}
+
+
+# ---- --arm: re-run a task on the arms that matter --------------------------------------------------
+#
+# `improve try` re-runs one task to see whether a change helped. The `bare` arm has passed 0 of 41
+# holdout tasks, so running it on every re-run is a third of the spend for an answer already known.
+
+
+class _Task:
+    def __init__(self, task_id):
+        self.id = task_id
+
+
+def _dry(monkeypatch, capsys, argv):
+    from tests.e2e.skill_eval import ladder
+
+    monkeypatch.setattr(ladder, "tools_ladder_tasks", lambda split=None, side="holdout": [_Task("CORPUS-40")])
+    code = ladder._main(["--dry-run", *argv])
+    return code, capsys.readouterr().out
+
+
+def test_arm_prices_only_the_arms_it_names(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--repeats", "3",
+                                           "--arm", "tools", "--arm", "tools+skills"])
+    assert code == 0
+    assert "2 arms (tools, tools+skills)" in out and "6 sessions" in out
+    assert "bare" not in out
+
+
+def test_without_arm_every_arm_still_runs(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--repeats", "3"])
+    assert code == 0 and "3 arms (bare, tools, tools+skills)" in out and "9 sessions" in out
+
+
+def test_an_unknown_arm_is_refused_and_the_valid_ones_are_named(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--arm", "tolls"])
+    assert code == 2
+    assert "tolls" in out and "bare" in out and "tools+skills" in out
+
+
+def test_arm_is_refused_on_the_pooled_rung(monkeypatch, capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(["--dry-run", "--ladder", "skill", "--skill", "all", "--arm", "tools"])
+    assert code == 2
+    assert "pooled" in capsys.readouterr().out

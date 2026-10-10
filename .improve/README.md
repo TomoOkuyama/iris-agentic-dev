@@ -71,10 +71,34 @@ the treated arm.
 ## Verbs
 
 - `status [--json]`: the nightly, the last full holdout, a ranked worklist, this month's spend.
-  `--json` is for a morning brief or any other tool that wants the same facts.
+  `--json` is for a morning brief or any other tool that wants the same facts. Free.
 - `next [task]`: take the top worklist item (or the one named), check the task is sound by running the
   adapter's `[[validate]]` command, and show what failed. A broken task is reported as the problem
-  before the agent is blamed. The check is cached by the task file's hash.
+  before the agent is blamed. The check is cached by the task file's hash. Free.
+- `try [task] [--yes] [--cap N] [--repeats N]`: after you change something, re-run one task and say
+  whether the change helped. **This one spends money.** It checks the task is sound first, shows the
+  harness's own estimate (with the adapter's warning about it), shows the weekly budget left, and asks.
+  The run gets a cap that is the smaller of `--cap` (default `per_try_usd`) and what is left of
+  `per_week_usd`; the cap is the bound, not the estimate. Without a terminal and without `--yes` it
+  does not run.
 
-Verbs that spend money (re-running a task, the weekly holdout) are not built yet. When they are, they
-show an estimate, ask, stop at the cap in `[budget]`, and write what they spent to the ledger.
+### What `try` writes
+
+Every run is an iteration with an id, `IMP-NNNN`, and leaves three lines in `ledger.jsonl`:
+
+```json
+{"ts":"2026-10-12T09:00:00Z","id":"IMP-0003","event":"claim","who":"tom","task":"CORPUS-40"}
+{"ts":"2026-10-12T09:11:40Z","id":"IMP-0003","event":"run","who":"tom","task":"CORPUS-40","cost_usd":2.41,"sessions":6,"returncode":0,"aborted":false,"cap":5.0,"repeats":3,"record":"tests/e2e/results/try-IMP-0003.json"}
+{"ts":"2026-10-12T09:11:41Z","id":"IMP-0003","event":"verdict","task":"CORPUS-40","label":"better","before":{"tools":[0,1],"tools+skills":[0,1]},"after":{"tools":[1,3],"tools+skills":[3,3]},"record":"tests/e2e/results/try-IMP-0003.json"}
+```
+
+- **One holder per item.** A `claim` with no `verdict` yet is held by whoever wrote it. Someone else's
+  `try` on that task is refused; the holder can run it again and keeps the same id.
+- **Labels** are `fixed` (every arm that was failing now passes every repeat, nothing got worse),
+  `better`, `no change`, `worse`, `mixed`, or `incomplete` (the run was cut off; its spend is still
+  recorded). Three repeats show a direction, not proof, and the output says so.
+- **No identifier, no claim.** To say a change improved something, commit it with the trailer
+  `Improve: IMP-NNNN`. The verdict line is what the claim points at (ADR 0003).
+- Commit `ledger.jsonl`. It is the project's record of what the loop did and spent.
+
+The weekly holdout run is not built yet.

@@ -835,6 +835,13 @@ def parse_args(argv=None):
         help="run only these task ids (repeatable); the --side filter still applies",
     )
     parser.add_argument(
+        "--arm",
+        action="append",
+        default=None,
+        help="run only these arms (repeatable), e.g. --arm tools --arm tools+skills to skip `bare`; "
+        "refused on the pooled rung, whose arms are built per task",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the estimate and the task list, start no session",
@@ -888,6 +895,18 @@ def _main(argv=None) -> int:
     else:
         arms = ARMS
         tasks = tools_ladder_tasks(side=args.side)
+        arm_names = [arm.name for arm in arms]
+
+    if args.arm:
+        if pooled:
+            print("--arm is not available on the pooled rung: its arms are built per task")
+            return 2
+        known = [arm.name for arm in arms]
+        unknown = [name for name in args.arm if name not in known]
+        if unknown:
+            print(f"unknown arm {unknown}; this rung has {known}")
+            return 2
+        arms = [arm for arm in arms if arm.name in set(args.arm)]
         arm_names = [arm.name for arm in arms]
 
     if args.task:

@@ -63,3 +63,25 @@ IRIS_WEB_PORT = "52780"
 IRIS_CONTAINER = "iris-dev-iris"
 IRIS_USERNAME = "_SYSTEM"
 IRIS_PASSWORD = "SYS"
+
+# How to re-run ONE task after a change. {task}, {repeats}, {cap} and {out} are filled in. The harness
+# must accept a cap in dollars and stop starting sessions once its measured spend reaches it, and write
+# a run record (see README.md) to {out}. `improve try` runs it once with the dry-run flag to show the
+# harness's own estimate, asks, then runs it for real. Only the arms that can change are run: the
+# baseline-with-nothing arm has passed 0 of 41 holdout tasks, so re-running it is a third of the spend
+# for an answer already known.
+[[try]]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "tools", "--side", "holdout", "--task", "{task}",
+  "--arm", "tools", "--arm", "tools+skills",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+# One line per finished session: "<task> <arm> PASS|FAIL <n> calls <seconds>s $<cost>".
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low (the AI Hub holdout was estimated at $1.02 and cost $12.29). The cap is what bounds the spend."
+[try.env]
+PYTHONPATH = "."
