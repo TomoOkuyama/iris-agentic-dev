@@ -17,9 +17,9 @@ AI Hub (`%AI.*`) ships only in Early Access builds, and each build changes names
 ## Where the docs are
 
 - Repo: `https://github.com/intersystems-community/ai-hub-eap`, branch `master`.
-- Read a file raw: `https://raw.githubusercontent.com/intersystems-community/ai-hub-eap/master/<path>`.
-- The repo moves. Check its current state (latest commit, whether the file you want still exists) before relying on a file; the map below was recorded at `084b250` (2026-10-06).
-- If GitHub is unreachable, skip the docs and work from the installed `%AI` classes alone (workflow step 2). Say that you did.
+- Raw file: `https://raw.githubusercontent.com/intersystems-community/ai-hub-eap/master/<path>`.
+- The repo moves. Check its current state (latest commit, file still there); the map below was recorded at `084b250` (2026-10-06).
+- If GitHub is unreachable, work from the installed `%AI` classes alone (workflow step 2) and say so.
 
 ## Topic map
 
@@ -34,11 +34,15 @@ AI Hub (`%AI.*`) ships only in Early Access builds, and each build changes names
 | LangChain   | `langchain_SDK.md`             |
 | Samples     | `objectscript/cls/`            |
 
-The SDK guide is over 3,000 lines. Fetch it once and search it for the class you need; do not read it top to bottom.
+The SDK guide is over 3,000 lines: fetch it once and search it.
+
+## Search the source, not the index
+
+`iris_doc_search` returned zero hits for every AI Hub query in 110 searches over six sessions. After two empty results from a search tool, stop. Read the installed class (`iris_doc` with `mode: "get"`, or `docs_introspect`) or fetch the doc file from the map above.
 
 ## Workflow
 
-1. Read the build: `iris_info` with `what: "metadata"` (the `version` field), or `Write $ZVERSION` through `iris_execute`. Note the build number (for example `2026.3.0AI (Build 154U)`).
+1. Read the build: `iris_info` with `what: "metadata"` (the `version` field), or `Write $ZVERSION` through `iris_execute`. Note the build number.
 2. Read the installed `%AI` classes for the part you are about to use: `iris_symbols` or `docs_introspect` on the class, or `iris_query` on `%Dictionary.CompiledClass` / `%Dictionary.CompiledMethod` for names and signatures.
 3. Fetch the doc file for the topic from the map above and read it for the concept and the calling pattern.
 4. Where the doc and the installed class disagree, the installed classes win. Write the code against the installed signature, and tell the user which doc line disagrees with which build.
@@ -46,9 +50,9 @@ The SDK guide is over 3,000 lines. Fetch it once and search it for the class you
 
 ## No web gateway
 
-Some AI builds ship without a web server (no private web server, and on Enterprise AI builds no gateway either). Then iad runs `docker_only = true` against the container, and only `iris_execute` and `iris_compile` work: `iris_doc`, `iris_symbols` and `docs_introspect` need Atelier REST and return `NOPWS_ATELIER_REQUIRED`.
+Some AI builds ship without a web server (on Enterprise AI builds, no gateway either). Then iad runs `docker_only = true` and only `iris_execute` and `iris_compile` work: `iris_doc`, `iris_symbols` and `docs_introspect` need Atelier REST and return `NOPWS_ATELIER_REQUIRED`.
 
-Read class metadata through `iris_execute` instead, with SQL over `%Dictionary.CompiledClass` and `%Dictionary.CompiledMethod`:
+Read class metadata through `iris_execute` with SQL over `%Dictionary.CompiledClass` and `%Dictionary.CompiledMethod`:
 
 ```objectscript
 Set rs = ##class(%SQL.Statement).%ExecDirect(, "SELECT Name, FormalSpec FROM %Dictionary.CompiledMethod WHERE parent = ?", "%AI.Agent")
@@ -59,7 +63,7 @@ Do not name `%Dictionary.ClassDefinition` or `%Dictionary.MethodDefinition` in `
 
 ## What holds on 2026.3
 
-Each fact below has a live test, first run on build 139 and last run on Build 154 (`crates/iris-agentic-dev-core/tests/integration/test_aihub_139_live.rs`); the claim table in `specs/132-aihub-139/research.md` names it. On another build, check the class first (workflow step 2).
+Each fact below has a live test, first run on build 139 and last run on Build 154 (`test_aihub_139_live.rs`); the claim table in `specs/132-aihub-139/research.md` names it. On another build, check the class first (workflow step 2).
 
 ### ConfigStore and Wallet
 
@@ -119,6 +123,6 @@ Where the ai-hub-eap docs and 2026.3 disagree, trust these lines. Each one is a 
 
 ## Upstream's own skill
 
-ai-hub-eap carries its own agent skill. Read it raw: `https://raw.githubusercontent.com/intersystems-community/ai-hub-eap/master/skills/aihub-eap/SKILL.md`. It was written for an older build; check what it says against the installed classes as in the workflow above.
+ai-hub-eap carries its own agent skill. Read it raw: `https://raw.githubusercontent.com/intersystems-community/ai-hub-eap/master/skills/aihub-eap/SKILL.md`. It was written for an older build; check it against the installed classes.
 
 `skill_community` cannot install it: iad subscribes to a repo through an `iris-agentic-dev.toml` at the repo root, and ai-hub-eap has none.

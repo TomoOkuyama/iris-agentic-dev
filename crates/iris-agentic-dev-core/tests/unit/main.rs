@@ -12,6 +12,7 @@
 mod handler_keys;
 mod test_admin_api_guardrail;
 mod test_aihub_139;
+mod test_aihub_no_search;
 mod test_audit_log;
 mod test_audit_phi_scrub;
 mod test_benchmark_run_task_errors;
