@@ -54,6 +54,7 @@ mod test_gate_resolution;
 mod test_gate_uncovered_paths;
 mod test_generate_unit;
 mod test_generator_false_success;
+mod test_guardrails_no_lookup;
 mod test_hints_replay_129;
 mod test_info_unit;
 mod test_interop_depth_unit;
