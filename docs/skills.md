@@ -36,7 +36,7 @@ risk, single-run variance, and single-model validation caveats.
 Every skill has a tier, set by `tier:` in its `SKILL.md` frontmatter:
 
 - **core**: the ten skills most ObjectScript work needs. The Claude Code plugin ships these, and a bare `skill install` installs these.
-- **extra**: the other 23. Install them by name or with `--all`. The `iris-agentic-dev` skill lists each one with a line on when to load it, and `skill_describe` reads any of them over MCP without installing anything.
+- **extra**: the other 24. Install them by name or with `--all`. The `iris-agentic-dev` skill lists each one with a line on when to load it, and `skill_describe` reads any of them over MCP without installing anything.
 - **internal**: skills for working on iad itself (today only `opencode-introspect`). No list shows them. Install one by name if you want it.
 
 Install the core skills to Claude Code and OpenCode:

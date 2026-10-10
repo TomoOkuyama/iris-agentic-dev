@@ -51,6 +51,7 @@ The plugin and a bare `iris-agentic-dev skill install` ship the core skills only
 - `iris-embedded-python`: run Python inside IRIS and call Python libraries from ObjectScript
 - `iris-linux-docker`: Linux bind-mount permissions for IRIS containers (UID 51773)
 - `iris-objectscript-eval`: execute, compile and test ObjectScript through the MCP tools instead of `docker exec`
+- `iris-mdx`: MDX queries against IRIS BI cubes: cube discovery, hierarchy paths, `%FILTER`, `%OR`, calculated members, and the 2026.2 `%MDX()` bug
 - `iris-pgwire`: connect to IRIS over the PostgreSQL wire protocol (psycopg3 and other Postgres clients)
 - `iris-product-features`: what IRIS and its products actually include, before you describe a feature
 - `iris-query-plans`: read a query plan, stale indexes, `%BuildIndices`, `TUNE TABLE`, fixed and collected statistics

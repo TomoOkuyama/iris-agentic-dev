@@ -8,6 +8,7 @@ description:
 iris_version: ">=2024.1"
 name: iris-mdx
 state: draft
+tier: extra
 tags:
   - iris
   - mdx
