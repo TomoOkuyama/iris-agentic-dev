@@ -388,3 +388,24 @@ async fn iris_execute_method_hints_an_object_that_cannot_survive_the_call() {
     assert!(plain.get("hint").is_none(), "{plain}");
     drop(&c, &client, &[name]).await;
 }
+
+/// `KNOWN_CALLBACKS` is the list the source hint trusts. It must equal what the connected
+/// instance defines for `%Library.Persistent`, so a new IRIS callback cannot be called "invented".
+#[tokio::test]
+#[ignore]
+async fn the_known_callback_list_matches_the_instance() {
+    let Some((c, client)) = conn() else { return };
+    let out = run(
+        &c,
+        &client,
+        " Set rs=##class(%SQL.Statement).%ExecDirect(,\"SELECT DISTINCT Name FROM %Dictionary.CompiledMethod WHERE parent = '%Library.Persistent' AND Name %STARTSWITH '%On' ORDER BY Name\")\n \
+         Set l=\"\" While rs.%Next() { Set l=l_$Select(l=\"\":\"\",1:\",\")_rs.Name }\n \
+         Write \"~[\",l,\"]~\"",
+    )
+    .await;
+    let start = out.rfind("~[").expect("marker") + 2;
+    let end = out[start..].find("]~").expect("end") + start;
+    let live: Vec<&str> = out[start..end].split(',').collect();
+    let known: Vec<&str> = iris_agentic_dev_core::tools::error_hints::KNOWN_CALLBACKS.to_vec();
+    assert_eq!(live, known, "update KNOWN_CALLBACKS in error_hints.rs");
+}

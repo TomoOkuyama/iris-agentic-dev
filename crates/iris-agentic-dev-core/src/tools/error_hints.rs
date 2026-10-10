@@ -43,7 +43,7 @@ const MATCHERS: &[&str] = &[
     "reserved_word",
     "nonstandard_insert",
     "delete_callback_oid",
-    "no_before_delete_callback",
+    "unknown_persistent_callback",
     "object_reference_result",
     "instance_method_on_class",
 ];
@@ -319,16 +319,59 @@ pub fn compile_error_hint(lines: &[String]) -> Option<Hint> {
     Some(Hint::new("delete_callback_oid", vec![("method", method)]))
 }
 
+/// Every `%On*` method `%Library.Persistent` defines or inherits, from `%Dictionary.CompiledMethod`
+/// on 2026.2. A live test compares this list with the connected instance, so it cannot drift.
+pub const KNOWN_CALLBACKS: &[&str] = &[
+    "%OnAddToSaveSet",
+    "%OnAfterBuildIndices",
+    "%OnAfterDelete",
+    "%OnAfterPurgeIndices",
+    "%OnAfterSave",
+    "%OnBeforeAddToSync",
+    "%OnBeforeBuildIndices",
+    "%OnBeforePurgeIndices",
+    "%OnBeforeSave",
+    "%OnClose",
+    "%OnConstructClone",
+    "%OnDelete",
+    "%OnDeleteFinally",
+    "%OnDetermineClass",
+    "%OnJournalObject",
+    "%OnNew",
+    "%OnOpen",
+    "%OnOpenFinally",
+    "%OnReload",
+    "%OnRollBack",
+    "%OnSaveFinally",
+    "%OnValidateObject",
+];
+
 /// The hint for class source that compiled, if a rule matches.
 ///
-/// `%OnBeforeDelete` is not a callback `%Persistent` calls, so a method of that name compiles clean
-/// and never runs. Nothing in the compiler output says so, which is why this reads the source
-/// (CORPUS-40 re-run: two of three with-skills sessions wrote it and reported success).
+/// IRIS calls a `%Persistent` callback by name, so a method named `%OnBeforeDelete` or
+/// `%OnAfterRemove` compiles clean and never runs. Nothing in the compiler output says so, which is
+/// why this reads the source (CORPUS-40 re-runs: three of nine with-skills sessions invented one and
+/// reported success). Only a class that extends `%Persistent` directly, with at most the mixins that
+/// define no `%On*` method, is judged: another superclass may define the name.
 pub fn compiled_source_hint(source: &str) -> Option<Hint> {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = re(r"(?m)^\s*(?:Class)?Method\s+%OnBeforeDelete\b", &RE);
-    re.is_match(source)
-        .then(|| Hint::new("no_before_delete_callback", vec![]))
+    static EXTENDS: OnceLock<Regex> = OnceLock::new();
+    static METHOD: OnceLock<Regex> = OnceLock::new();
+    let extends = re(
+        r"(?m)^\s*Class\s+[\w.%]+\s+Extends\s+\(?\s*(?:%Library\.)?%?Persistent\b\s*(?:,\s*(?:%Library\.Populate|%Populate|%XML\.Adaptor|%JSON\.Adaptor)\s*)*\)?",
+        &EXTENDS,
+    );
+    if !extends.is_match(source) {
+        return None;
+    }
+    let method = re(r"(?m)^\s*(?:Class)?Method\s+(%On\w+)", &METHOD);
+    let name = method
+        .captures_iter(source)
+        .map(|c| c[1].to_string())
+        .find(|m| !KNOWN_CALLBACKS.contains(&m.as_str()))?;
+    Some(Hint::new(
+        "unknown_persistent_callback",
+        vec![("method", name)],
+    ))
 }
 
 /// Instance methods an agent calls on a class name after `%New`. Each exists on an object and

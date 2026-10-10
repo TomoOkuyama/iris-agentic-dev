@@ -7,6 +7,7 @@
 use iris_agentic_dev_core::tools::error_hints::{
     cited_sections, coding_pack_from, coding_pack_on, compile_error_hint, compiled_source_hint,
     execute_method_hint, matcher_ids, rules, runtime_error_hint, sql_error_hint, Hint,
+    KNOWN_CALLBACKS,
 };
 use iris_agentic_dev_core::tools::{IrisTools, Toolset};
 use std::path::Path;
@@ -452,31 +453,71 @@ fn a_user_method_named_like_a_callback_prefix_is_not_matched() {
     assert!(compile_error_hint(&[class_method_error("A.B", "%OnDeleteExtra")]).is_none());
 }
 
-// ── no_before_delete_callback (CORPUS-40 re-run IMP-0002) ────────────────────────────────────
+// ── unknown_persistent_callback (IMP-0002 and IMP-0004 re-runs) ──────────────────────────────
 //
-// Live on iris-dev-iris 2026.2: a class with `Method %OnBeforeDelete()` and a class method
-// `%OnDelete` compiled clean, and `%DeleteId` ran %OnDelete once and %OnBeforeDelete never.
-// Two of three with-skills sessions wrote %OnBeforeDelete and never saw an error.
+// Live on iris-dev-iris 2026.2: a persistent class with `Method %OnBeforeDelete()` compiled
+// clean and `%DeleteId` never called it; the `%OnDelete` class method beside it ran once.
+// `%Dictionary.CompiledMethod` for %Library.Persistent has no %OnBeforeDelete and no
+// %OnAfterRemove. Three of nine with-skills sessions invented one of them and reported success.
+
+fn persistent(method_line: &str) -> String {
+    format!("Class A.B Extends %Persistent\n{{\n\nProperty Name As %String;\n\n{method_line}\n{{\n    Quit $$$OK\n}}\n}}")
+}
 
 #[test]
-fn a_before_delete_method_gets_the_never_called_hint() {
-    for src in [
-        "Method %OnBeforeDelete() As %Status [ Private, ServerOnly = 1 ]\n{\n    Quit $$$OK\n}",
-        "  ClassMethod %OnBeforeDelete(oid As %ObjectIdentity) As %Status\n{\n    Quit $$$OK\n}",
+fn an_invented_persistent_callback_gets_the_never_called_hint() {
+    for m in [
+        "%OnBeforeDelete",
+        "%OnAfterRemove",
+        "%OnBeforeRemove",
+        "%OnDeleted",
     ] {
-        let h = compiled_source_hint(src).unwrap_or_else(|| panic!("no hint for {src}"));
-        assert_eq!(h.rule(), "no_before_delete_callback");
-        assert!(h.text().contains("never calls"), "{}", h.text());
-        assert!(h.text().contains("%OnDelete"), "{}", h.text());
+        for line in [
+            format!("Method {m}() As %Status [ Private, ServerOnly = 1 ]"),
+            format!("  ClassMethod {m}(oid As %ObjectIdentity) As %Status"),
+        ] {
+            let src = persistent(&line);
+            let h = compiled_source_hint(&src).unwrap_or_else(|| panic!("no hint for {src}"));
+            assert_eq!(h.rule(), "unknown_persistent_callback");
+            assert!(h.text().contains(m), "{}", h.text());
+            assert!(h.text().contains("never calls"), "{}", h.text());
+            assert!(h.text().contains("%OnDelete"), "{}", h.text());
+        }
     }
 }
 
 #[test]
-fn source_without_a_before_delete_method_gets_no_such_hint() {
-    assert!(compiled_source_hint("Method %OnBeforeSave() As %Status\n{\n Quit $$$OK\n}").is_none());
-    assert!(compiled_source_hint("// %OnBeforeDelete is not a callback\nClass A.B {}").is_none());
-    assert!(compiled_source_hint("Method %OnBeforeDeleteAll() As %Status {}").is_none());
+fn every_real_persistent_callback_gets_no_hint() {
+    for m in KNOWN_CALLBACKS {
+        let src = persistent(&format!("Method {m}() As %Status"));
+        assert!(compiled_source_hint(&src).is_none(), "{m}");
+    }
+    assert!(KNOWN_CALLBACKS.contains(&"%OnDelete") && KNOWN_CALLBACKS.contains(&"%OnAfterDelete"));
+    assert!(!KNOWN_CALLBACKS.contains(&"%OnBeforeDelete"));
+}
+
+#[test]
+fn only_a_class_that_extends_persistent_is_judged() {
+    let m = "Method %OnAfterRemove() As %Status\n{\n    Quit $$$OK\n}";
+    // Another superclass may define the callback, so the hint would be a guess.
+    assert!(compiled_source_hint(&format!("Class A.B Extends Other.Base\n{{\n{m}\n}}")).is_none());
+    assert!(
+        compiled_source_hint(&format!("Class A.B Extends %RegisteredObject\n{{\n{m}\n}}"))
+            .is_none()
+    );
+    assert!(compiled_source_hint(m).is_none());
     assert!(compiled_source_hint("").is_none());
+    // The usual mixins add no %On* methods.
+    let src = format!("Class A.B Extends (%Persistent, %Populate, %XML.Adaptor)\n{{\n{m}\n}}");
+    assert!(compiled_source_hint(&src).is_some());
+    let src = format!("Class A.B Extends %Library.Persistent\n{{\n{m}\n}}");
+    assert!(compiled_source_hint(&src).is_some());
+}
+
+#[test]
+fn a_comment_or_longer_name_is_not_a_callback_method() {
+    let src = "Class A.B Extends %Persistent\n{\n// Method %OnAfterRemove is not a thing\nMethod Run() As %Status\n{\n    Quit $$$OK\n}\n}";
+    assert!(compiled_source_hint(src).is_none());
 }
 
 // ── objects across iris_execute_method calls (CORPUS-40, 56-call session) ────────────────────
@@ -600,7 +641,7 @@ fn every_placeholder_in_a_template_is_filled() {
         .unwrap(),
         runtime_error_hint(&class_missing("Security.Users"), "USER").unwrap(),
         compile_error_hint(&[oid_signature_error("Bench.CapB", "%OnDelete")]).unwrap(),
-        compiled_source_hint("Method %OnBeforeDelete() As %Status\n{\n Quit $$$OK\n}").unwrap(),
+        compiled_source_hint(&persistent("Method %OnAfterRemove() As %Status")).unwrap(),
         execute_method_hint("Bench.Tracked", "%New", "1060@Bench.Tracked").unwrap(),
         execute_method_hint("Bench.Tracked", "%Save", "<METHOD DOES NOT EXIST> 148 Execute+7^IrisDevTmp.IrisDevRun01e4ed96a144.1 %Save,Bench.Tracked").unwrap(),
     ];
