@@ -94,6 +94,10 @@ Every run is an iteration with an id, `IMP-NNNN`, and leaves three lines in `led
 
 - **One holder per item.** A `claim` with no `verdict` yet is held by whoever wrote it. Someone else's
   `try` on that task is refused; the holder can run it again and keeps the same id.
+- **A wrong entry is never edited.** A `correction` event is appended after it and wins. IMP-0001 has one:
+  its first run changed nothing, one session of six passed, and the judge called that "better".
+- **A move smaller than half the repeats is noise** (`NOISE_BAND`), so one extra pass in three is "no
+  change". Each run also records the commit and whether the tree had uncommitted changes.
 - **Labels** are `fixed` (every arm that was failing now passes every repeat, nothing got worse),
   `better`, `no change`, `worse`, `mixed`, or `incomplete` (the run was cut off; its spend is still
   recorded). Three repeats show a direction, not proof, and the output says so.

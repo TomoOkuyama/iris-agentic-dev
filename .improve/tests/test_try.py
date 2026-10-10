@@ -114,7 +114,9 @@ def world(tmp_path):
     return cfg
 
 
-def go(argv, cfg, *, runner=None, answer=True, who="tom", night=None, validator=None):
+def go(
+    argv, cfg, *, runner=None, answer=True, who="tom", night=None, validator=None, git=("abc1234def", False)
+):
     lines, asked = [], []
 
     def confirm(prompt):
@@ -133,6 +135,7 @@ def go(argv, cfg, *, runner=None, answer=True, who="tom", night=None, validator=
         runner=runner,
         confirm=confirm,
         who=who,
+        git_state=lambda: git,
     )
     return code, "\n".join(lines), runner, asked
 
@@ -361,10 +364,17 @@ def test_the_same_holder_resumes_their_own_open_item(world):
     "before,after,label",
     [
         (((0, 1), (0, 1)), {"plain": [1, 1, 1], "memory": [1, 1, 1]}, "fixed"),
-        (((0, 1), (0, 1)), {"plain": [1, 0, 0], "memory": [0, 0, 0]}, "better"),
+        (((0, 1), (0, 1)), {"plain": [1, 1, 0], "memory": [0, 0, 0]}, "better"),
         (((0, 1), (0, 1)), {"plain": [0, 0, 0], "memory": [0, 0, 0]}, "no change"),
-        (((1, 1), (1, 1)), {"plain": [1, 1, 1], "memory": [0, 1, 1]}, "worse"),
+        (((1, 1), (1, 1)), {"plain": [1, 1, 1], "memory": [0, 0, 1]}, "worse"),
         (((0, 1), (1, 1)), {"plain": [1, 1, 1], "memory": [0, 0, 0]}, "mixed"),
+        # One pass in three is within noise and must never be called an improvement. This is the
+        # first real run: nothing had been changed, one session of six happened to pass, and the
+        # judge called it "better".
+        (((0, 1), (0, 1)), {"plain": [0, 0, 0], "memory": [1, 0, 0]}, "no change"),
+        (((0, 1), (0, 1)), {"plain": [0, 1, 0], "memory": [1, 0, 0]}, "no change"),
+        (((1, 1), (1, 1)), {"plain": [1, 1, 0], "memory": [1, 1, 1]}, "no change"),
+        (((1, 3), (1, 3)), {"plain": [1, 1, 1], "memory": [1, 0, 0]}, "better"),
     ],
 )
 def test_the_verdict_label(before, after, label):
@@ -465,3 +475,30 @@ def test_this_projects_adapter_declares_how_to_try_a_task():
     assert "bare" not in joined and joined.count("--arm") == 2, (
         "re-runs skip the arm that always fails"
     )
+
+
+# ---- what the verdict rests on -----------------------------------------------------------------
+
+
+def test_the_run_records_which_commit_and_whether_the_tree_was_dirty(world):
+    code, text, _, _ = go(["try", "T-40", "--yes"], world, git=("abc1234def", True))
+    run = next(e for e in ledger(world) if e["event"] == "run")
+    assert run["commit"] == "abc1234def" and run["dirty"] is True
+    assert "abc1234" in text and "uncommitted changes" in text
+
+
+def test_a_clean_tree_is_said_to_be_clean(world):
+    code, text, _, _ = go(["try", "T-40", "--yes"], world, git=("abc1234def", False))
+    assert "abc1234" in text and "clean" in text
+
+
+def test_a_verdict_that_is_noise_does_not_offer_the_commit_trailer(world):
+    runner = Runner(passes_by_arm={"plain": [0, 0, 0], "memory": [1, 0, 0]})
+    code, text, _, _ = go(["try", "T-40", "--yes"], world, runner=runner)
+    assert "Verdict: no change" in text
+    assert "Improve: IMP" not in text, "no improvement, so nothing to cite"
+    assert "within noise" in text
+
+
+def test_the_threshold_is_stated_so_the_label_can_be_checked():
+    assert improve.NOISE_BAND == 0.5

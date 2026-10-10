@@ -692,16 +692,23 @@ def spend_this_week(events: list, now: datetime) -> float:
     return sum(float(e.get("cost_usd") or 0) for e in events if _iso_week(str(e.get("ts", ""))) == week)
 
 
+#: A change in an arm's pass rate counts only when it is at least this much. With three repeats, one
+#: extra pass is a third and is within the noise of an unchanged setup; the first real run is the
+#: reason: nothing had been changed, one session in six passed, and a smaller band called it "better".
+NOISE_BAND = 0.5
+
+
 def judge(before: dict, after: dict) -> str:
     """One word for what a re-run says about a change. `before` and `after` map an arm to
-    `(passes, runs)`. Three repeats show a direction, not proof, and the caller says so."""
+    `(passes, runs)`. A move smaller than `NOISE_BAND` is no move. Three repeats show a direction,
+    not proof, and the caller says so."""
     up = down = False
     failing_before = []
     for arm, (b_pass, b_runs) in before.items():
         a_pass, a_runs = after[arm]
         rate_b, rate_a = b_pass / b_runs, a_pass / a_runs
-        up |= rate_a > rate_b
-        down |= rate_a < rate_b
+        up |= rate_a - rate_b >= NOISE_BAND - 1e-9
+        down |= rate_b - rate_a >= NOISE_BAND - 1e-9
         if rate_b < 0.5:
             failing_before.append(arm)
     if up and down:
@@ -719,7 +726,7 @@ def _fmt(n: float) -> str:
     return f"${n:.2f}"
 
 
-def run_try(args, cfg, nightly, validator, container_running, runner, confirm, who, out, now) -> int:
+def run_try(args, cfg, nightly, validator, container_running, runner, confirm, who, git_state, out, now) -> int:
     status = build_status(cfg, now=now, nightly=nightly)
     if status.measured_at is None:
         out("No full holdout run found in the results directory, so there is nothing to compare a re-run to.")
@@ -793,6 +800,7 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         out("Not run. Nothing was spent and nothing was written.")
         return 0
 
+    commit, dirty = git_state()
     started = time.monotonic()
 
     def stamp() -> str:
@@ -816,6 +824,7 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         "ts": stamp(), "id": imp_id, "event": "run", "who": who, "task": task_id,
         "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
         "aborted": aborted, "cap": float(cap), "repeats": repeats,
+        "commit": commit, "dirty": dirty,
         "record": os.path.relpath(record_path, cfg.root),
     })
 
@@ -849,10 +858,15 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
     for arm, name in arms.items():
         out(f"  {name:<18}was {before[arm][0]}/{before[arm][1]} passed, now {after[arm][0]}/{after[arm][1]}")
     out("")
-    out(f"Verdict: {label}. Three repeats show a direction, not proof.")
+    state = "uncommitted changes in the tree" if dirty else "clean tree"
+    out(f"Run on commit {commit[:7]} ({state}).")
+    note = " Differences smaller than half the repeats are within noise at this size." if label == "no change" else ""
+    out(f"Verdict: {label}. Three repeats show a direction, not proof.{note}")
     out(f"Spent {_fmt(cost)} of the {_fmt(cap)} cap; this week {_fmt(spent_week + cost)} of {_fmt(cfg.per_week_usd)}.")
     if label in ("fixed", "better"):
         out(f"To keep the change, commit it with the trailer:  Improve: {imp_id}")
+    elif label == "no change":
+        out("Nothing improved, so there is nothing to cite.")
     else:
         out("To undo the change, revert it; nothing else needs cleaning up.")
     return 0
@@ -947,6 +961,20 @@ def _make_validator(cfg: Config) -> Callable[[str], Validation]:
     return validate
 
 
+def _make_git_state(cfg: Config) -> Callable[[], tuple]:
+    def state() -> tuple:
+        try:
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cfg.root, capture_output=True,
+                                 text=True, timeout=30, check=False).stdout.strip() or "unknown"
+            dirty = bool(subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                                        cwd=cfg.root, capture_output=True, text=True, timeout=30,
+                                        check=False).stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            return "unknown", False
+        return sha, dirty
+    return state
+
+
 def _stream_runner(argv, env, timeout, live=False) -> RunResult:
     """Run a command. With `live`, show its output as it arrives: a re-run can take minutes."""
     proc = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -983,6 +1011,7 @@ def main(
     runner: Optional[Callable] = None,
     confirm: Optional[Callable[[str], bool]] = None,
     who: Optional[str] = None,
+    git_state: Optional[Callable[[], tuple]] = None,
     out: Callable[[str], None] = print,
     now: Optional[datetime] = None,
 ) -> int:
@@ -1027,7 +1056,7 @@ def main(
     if args.verb == "try":
         holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
         return run_try(args, cfg, nightly, validator, container_running, runner or _stream_runner,
-                       confirm or _ask, holder, out, now)
+                       confirm or _ask, holder, git_state or _make_git_state(cfg), out, now)
     return run_next(args, cfg, nightly, validator, container_running, out, now)
 
 
