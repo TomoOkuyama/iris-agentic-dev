@@ -106,3 +106,4 @@ __pycache__/
 
 # Local-only files: the published-example name denylist (spec 123)
 /.iad-local/
+tests/e2e/results/improve-validated.json
