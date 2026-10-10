@@ -73,11 +73,56 @@ IRIS_PASSWORD = "SYS"
 # Skill tasks: each runs against its own skill, preloaded, so `skill_loaded` says whether the agent
 # read it. The pooled all-skills arm is not a treatment (no agent ever loaded a skill in it).
 # These must come before the general rule: the first rule that names the task wins.
+# AI Hub tasks (22 to 25) run on the 2026.3 AI Hub container, not iris-dev-iris.
+[[try]]
+tasks = ["SKILL-24", "SKILL-25"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+[[try]]
+tasks = ["SKILL-22", "SKILL-23"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
 [[try]]
 tasks = [
   "SKILL-01", "SKILL-02", "SKILL-03", "SKILL-04", "SKILL-05", "SKILL-06", "SKILL-07", "SKILL-08",
   "SKILL-09", "SKILL-10", "SKILL-11", "SKILL-12", "SKILL-14", "SKILL-15", "SKILL-16", "SKILL-17",
-  "SKILL-18", "SKILL-19", "SKILL-20", "SKILL-24", "SKILL-25",
+  "SKILL-18", "SKILL-19", "SKILL-20",
 ]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
@@ -99,7 +144,7 @@ judge_calls = true
 PYTHONPATH = "."
 
 [[try]]
-tasks = ["SKILL-13", "SKILL-21", "SKILL-22", "SKILL-23"]
+tasks = ["SKILL-13", "SKILL-21"]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
   "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",

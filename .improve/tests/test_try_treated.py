@@ -302,3 +302,18 @@ def test_this_projects_adapter_has_rules_for_the_skill_tasks():
     assert "SKILL-02" in holdout.tasks and "SKILL-02" not in train.tasks
     assert "SKILL-13" in train.tasks and "SKILL-13" not in holdout.tasks
     assert improve.try_rule_for(cfg, "CORPUS-40").treated_prefix == "", "other tasks keep the single arm"
+
+
+def test_the_ai_hub_tasks_run_against_the_ai_hub_container():
+    """SKILL-22 to 25 need the 2026.3 AI Hub build; the generic rules would run them on iris-dev-iris."""
+    cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
+    for task, side in (("SKILL-24", "holdout"), ("SKILL-25", "holdout"), ("SKILL-22", "train"), ("SKILL-23", "train")):
+        rule = improve.try_rule_for(cfg, task)
+        cmd = list(rule.command)
+        assert cmd[cmd.index("--side") + 1] == side, task
+        assert cmd[cmd.index("--web-port") + 1] == "52781", task
+        assert cmd[cmd.index("--container") + 1] == "iad-aihub-iris", task
+        assert rule.treated_prefix == "tools+" and rule.applied_field == "skill_loaded" and rule.judge_calls, task
+    generic = improve.try_rule_for(cfg, "SKILL-02")
+    assert "--web-port" not in generic.command and "--container" not in generic.command
+    assert "SKILL-24" not in generic.tasks and "SKILL-22" not in improve.try_rule_for(cfg, "SKILL-13").tasks
