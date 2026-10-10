@@ -1907,14 +1907,30 @@ pub async fn handle_iris_execute_method(
     // Check for generator-level errors (Catch block writes "ERROR: ...")
     let trimmed = output.trim();
     if let Some(stripped) = crate::iris::connection::generator_error_message(trimmed) {
-        return err_json("IRIS_EXECUTE_ERROR", stripped.trim());
+        let mut v = serde_json::json!({
+            "success": false,
+            "error_code": "IRIS_EXECUTE_ERROR",
+            "error": stripped.trim(),
+        });
+        if let Some(h) = crate::tools::error_hints::execute_method_hint(class, method, stripped) {
+            h.apply(&mut v);
+        }
+        return super::err_result(v);
     }
 
     match method_output(&output) {
-        Ok(return_value) => ok_json(serde_json::json!({
-            "success": true,
-            "return_value": return_value,
-        })),
+        Ok(return_value) => {
+            let mut v = serde_json::json!({
+                "success": true,
+                "return_value": return_value,
+            });
+            if let Some(h) =
+                crate::tools::error_hints::execute_method_hint(class, method, &return_value)
+            {
+                h.apply(&mut v);
+            }
+            ok_json(v)
+        }
         Err(text) => err_json(
             "METHOD_RETURNED_ERROR",
             &format!("{class}.{method} returned an error %Status: {text}"),

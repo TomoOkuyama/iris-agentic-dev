@@ -328,3 +328,63 @@ ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly =
     );
     drop(&c, &client, &[name]).await;
 }
+
+/// The object hints rest on this: `%New` over `iris_execute_method` answers a reference and the
+/// next call cannot use it. Both responses carry the hint; a plain class method carries none.
+#[tokio::test]
+#[ignore]
+async fn iris_execute_method_hints_an_object_that_cannot_survive_the_call() {
+    let Some((c, client)) = conn() else { return };
+    let name = "IadLiveCb.Obj";
+    let src = class(
+        name,
+        "ClassMethod Twice(n As %Integer) As %Integer\n{\n    Quit n * 2\n}",
+    );
+    drop(&c, &client, &[name]).await;
+    let r = put_and_compile(&c, &client, "IadLiveCb.Obj.cls", &src).await;
+    assert!(r.success(), "{:?}", r.errors);
+    let t = iris_agentic_dev_core::tools::IrisTools::new(Some(c.clone())).expect("IrisTools::new");
+    let call = |args: serde_json::Value| {
+        let t = &t;
+        async move {
+            let r = t
+                .call_for_test("iris_execute_method", args)
+                .await
+                .expect("call");
+            serde_json::from_str::<serde_json::Value>(&r.content[0].as_text().unwrap().text)
+                .expect("json")
+        }
+    };
+    let new =
+        call(serde_json::json!({"class":name,"method":"%New","args":["a"],"namespace":NS})).await;
+    assert!(
+        new["return_value"].as_str().unwrap_or("").contains('@'),
+        "{new}"
+    );
+    assert!(
+        new["hint"].as_str().unwrap_or("").contains("new process"),
+        "{new}"
+    );
+    assert_eq!(new["hint_ref"]["skill"], "iris-agentic-dev");
+
+    let save =
+        call(serde_json::json!({"class":name,"method":"%Save","args":[],"namespace":NS})).await;
+    assert_eq!(save["success"], false, "{save}");
+    assert!(
+        save["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("METHOD DOES NOT EXIST"),
+        "{save}"
+    );
+    assert!(
+        save["hint"].as_str().unwrap_or("").contains("%Save"),
+        "{save}"
+    );
+
+    let plain =
+        call(serde_json::json!({"class":name,"method":"Twice","args":["4"],"namespace":NS})).await;
+    assert_eq!(plain["return_value"], "8", "{plain}");
+    assert!(plain.get("hint").is_none(), "{plain}");
+    drop(&c, &client, &[name]).await;
+}

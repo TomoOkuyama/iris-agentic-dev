@@ -44,6 +44,8 @@ const MATCHERS: &[&str] = &[
     "nonstandard_insert",
     "delete_callback_oid",
     "no_before_delete_callback",
+    "object_reference_result",
+    "instance_method_on_class",
 ];
 
 /// Packages whose classes resolve only in %SYS (spec 125 research R2). `%SYS.*` and `%SYSTEM.*`
@@ -327,4 +329,43 @@ pub fn compiled_source_hint(source: &str) -> Option<Hint> {
     let re = re(r"(?m)^\s*(?:Class)?Method\s+%OnBeforeDelete\b", &RE);
     re.is_match(source)
         .then(|| Hint::new("no_before_delete_callback", vec![]))
+}
+
+/// Instance methods an agent calls on a class name after `%New`. Each exists on an object and
+/// not on the class, so `##class(X).%Save()` is `<METHOD DOES NOT EXIST>`.
+const INSTANCE_METHODS: &[&str] = &["%Save", "%Id", "%Reload", "%Close", "%IsModified"];
+
+/// The hint for one `iris_execute_method` call: `outcome` is the return value of a call that
+/// succeeded, or the error text of one that failed.
+///
+/// Every call runs in a new process, so the object `%New` returns is gone before the next call
+/// can use it. An agent that cannot see that tries `%Save`, `%Id`, `%IdKeyDelete` and the rest
+/// (CORPUS-40: 48 calls, 4 misses, 16 `%New`s, no row ever saved).
+pub fn execute_method_hint(class: &str, method: &str, outcome: &str) -> Option<Hint> {
+    static MISS: OnceLock<Regex> = OnceLock::new();
+    let outcome = outcome.trim();
+    // An OREF is `<number>@<class>`; requiring the called class keeps a plain string that happens
+    // to contain an `@` from matching.
+    let is_oref = outcome
+        .strip_suffix(&format!("@{class}"))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    if is_oref {
+        return Some(Hint::new(
+            "object_reference_result",
+            vec![("ref", outcome.to_string()), ("class", class.to_string())],
+        ));
+    }
+    let missing = re(r"<METHOD DOES NOT EXIST>.* (%\w+),[\w.%]+$", &MISS)
+        .captures(outcome)?
+        .get(1)?
+        .as_str();
+    (missing == method && INSTANCE_METHODS.contains(&missing)).then(|| {
+        Hint::new(
+            "instance_method_on_class",
+            vec![
+                ("method", missing.to_string()),
+                ("class", class.to_string()),
+            ],
+        )
+    })
 }
