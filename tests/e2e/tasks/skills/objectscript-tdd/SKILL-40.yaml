@@ -1,0 +1,39 @@
+id: SKILL-40
+prompt: |
+  Bench14.Fmt.Label(pFirst, pLast) in the BENCHMARK namespace must return the last name in upper
+  case, a comma and a space, then the first name as given: Label("ada", "lovelace") returns
+  LOVELACE, ada. The class compiles clean, but callers get an error. Fix it. Leave the class compiled
+  on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-tdd
+fixtures:
+  - name: Bench14.Fmt
+    content: |
+      Class Bench14.Fmt Extends %RegisteredObject
+      {
+
+      ClassMethod Label(pFirst As %String, pLast As %String) As %String
+      {
+          Set tUpper = $ZCONVERT(pLast, "U")
+          Quit tUpper _ ", " _ tFirst
+      }
+
+      }
+check: |
+  try { set ok=((##class(Bench14.Fmt).Label("ada","lovelace")="LOVELACE, ada")&&(##class(Bench14.Fmt).Label("x","y")="Y, x")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench14.Fmt
+    content: |
+      Class Bench14.Fmt Extends %RegisteredObject
+      {
+
+      ClassMethod Label(pFirst As %String, pLast As %String) As %String
+      {
+          Set tUpper = $ZCONVERT(pLast, "U")
+          Quit tUpper _ ", " _ pFirst
+      }
+
+      }
+tags: [runtime-undefined]

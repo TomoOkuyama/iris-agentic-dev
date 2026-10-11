@@ -1,0 +1,86 @@
+id: SKILL-41
+prompt: |
+  Load the two classes in this XML export onto the BENCHMARK namespace, replacing any version that is there now, and leave both compiled on the server:
+
+  <?xml version="1.0" encoding="UTF8"?>
+  <Export generator="IRIS" version="26">
+  <Class name="Bench41.Lib">
+  <Super>%RegisteredObject</Super>
+  <Method name="Twice">
+  <ClassMethod>1</ClassMethod>
+  <FormalSpec>pN:%Integer</FormalSpec>
+  <ReturnType>%Integer</ReturnType>
+  <Implementation><![CDATA[    Quit pN * 2
+  ]]></Implementation>
+  </Method>
+  </Class>
+  <Class name="Bench41.App">
+  <Super>%RegisteredObject</Super>
+  <Method name="Run">
+  <ClassMethod>1</ClassMethod>
+  <ReturnType>%Integer</ReturnType>
+  <Implementation><![CDATA[    Quit ##class(Bench41.Lib).Twice(21)
+  ]]></Implementation>
+  </Method>
+  </Class>
+  </Export>
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-agentic-dev
+fixtures:
+  - name: Bench41.Lib
+    content: |
+      Class Bench41.Lib Extends %RegisteredObject
+      {
+
+      ClassMethod Twice(pN As %Integer) As %Integer
+      {
+          Quit 0
+      }
+
+      }
+  - name: Bench41.App
+    content: |
+      Class Bench41.App Extends %RegisteredObject
+      {
+
+      ClassMethod Run() As %Integer
+      {
+          Quit 0
+      }
+
+      }
+check: |
+  try { set ok=((##class(Bench41.App).Run()=42)&&(##class(Bench41.Lib).Twice(5)=10)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench41.Lib
+    content: |
+      <?xml version="1.0" encoding="UTF8"?>
+      <Export generator="IRIS" version="26">
+      <Class name="Bench41.Lib">
+      <Super>%RegisteredObject</Super>
+      <Method name="Twice">
+      <ClassMethod>1</ClassMethod>
+      <FormalSpec>pN:%Integer</FormalSpec>
+      <ReturnType>%Integer</ReturnType>
+      <Implementation><![CDATA[    Quit pN * 2
+      ]]></Implementation>
+      </Method>
+      </Class>
+      </Export>
+  - name: Bench41.App
+    content: |
+      <?xml version="1.0" encoding="UTF8"?>
+      <Export generator="IRIS" version="26">
+      <Class name="Bench41.App">
+      <Super>%RegisteredObject</Super>
+      <Method name="Run">
+      <ClassMethod>1</ClassMethod>
+      <ReturnType>%Integer</ReturnType>
+      <Implementation><![CDATA[    Quit ##class(Bench41.Lib).Twice(21)
+      ]]></Implementation>
+      </Method>
+      </Class>
+      </Export>
+tags: [xml, export, two-classes]

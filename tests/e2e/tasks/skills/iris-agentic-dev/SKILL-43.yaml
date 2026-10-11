@@ -1,0 +1,56 @@
+id: SKILL-43
+prompt: |
+  Load the class in this XML export onto the BENCHMARK namespace, replacing the version that is there now, and leave it compiled on the server:
+
+  <?xml version="1.0" encoding="UTF8"?>
+  <Export generator="IRIS" version="26">
+  <Class name="Bench43.Cfg">
+  <Super>%RegisteredObject</Super>
+  <Parameter name="LIMIT">
+  <Default>7</Default>
+  </Parameter>
+  <Method name="Limit">
+  <ClassMethod>1</ClassMethod>
+  <ReturnType>%Integer</ReturnType>
+  <Implementation><![CDATA[    Quit ..#LIMIT
+  ]]></Implementation>
+  </Method>
+  </Class>
+  </Export>
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-agentic-dev
+fixtures:
+  - name: Bench43.Cfg
+    content: |
+      Class Bench43.Cfg Extends %RegisteredObject
+      {
+
+      ClassMethod Limit() As %Integer
+      {
+          Quit 0
+      }
+
+      }
+check: |
+  try { set ok=(##class(Bench43.Cfg).Limit()=7) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench43.Cfg
+    content: |
+      <?xml version="1.0" encoding="UTF8"?>
+      <Export generator="IRIS" version="26">
+      <Class name="Bench43.Cfg">
+      <Super>%RegisteredObject</Super>
+      <Parameter name="LIMIT">
+      <Default>7</Default>
+      </Parameter>
+      <Method name="Limit">
+      <ClassMethod>1</ClassMethod>
+      <ReturnType>%Integer</ReturnType>
+      <Implementation><![CDATA[    Quit ..#LIMIT
+      ]]></Implementation>
+      </Method>
+      </Class>
+      </Export>
+tags: [xml, export, parameter]

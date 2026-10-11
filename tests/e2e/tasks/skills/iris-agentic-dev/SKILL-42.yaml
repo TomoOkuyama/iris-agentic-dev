@@ -1,0 +1,39 @@
+id: SKILL-42
+prompt: |
+  Load the class in this XML export onto the BENCHMARK namespace, replacing the version that is there now, and leave it compiled on the server (the export came out of a tool that put it on one line):
+
+  <?xml version="1.0" encoding="UTF8"?><Export generator="IRIS" version="26"><Class name="Bench42.Clock"><Super>%RegisteredObject</Super><Method name="Tick"><ClassMethod>1</ClassMethod><ReturnType>%String</ReturnType><Implementation><![CDATA[    Quit "tock"]]></Implementation></Method></Class></Export>
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-agentic-dev
+fixtures:
+  - name: Bench42.Clock
+    content: |
+      Class Bench42.Clock Extends %RegisteredObject
+      {
+
+      ClassMethod Tick() As %String
+      {
+          Quit 0
+      }
+
+      }
+check: |
+  try { set ok=(##class(Bench42.Clock).Tick()="tock") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench42.Clock
+    content: |
+      <?xml version="1.0" encoding="UTF8"?>
+      <Export generator="IRIS" version="26">
+      <Class name="Bench42.Clock">
+      <Super>%RegisteredObject</Super>
+      <Method name="Tick">
+      <ClassMethod>1</ClassMethod>
+      <ReturnType>%String</ReturnType>
+      <Implementation><![CDATA[    Quit "tock"
+      ]]></Implementation>
+      </Method>
+      </Class>
+      </Export>
+tags: [xml, export, one-line]

@@ -1,0 +1,40 @@
+id: SKILL-37
+prompt: |
+  Bench11.Stats.Average(pA, pB, pC) in the BENCHMARK namespace must return the arithmetic mean of its
+  three numbers. The class compiles clean, but callers get an error. Fix it. Leave the class compiled
+  on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-tdd
+fixtures:
+  - name: Bench11.Stats
+    content: |
+      Class Bench11.Stats Extends %RegisteredObject
+      {
+
+      ClassMethod Average(pA As %Numeric, pB As %Numeric, pC As %Numeric) As %Numeric
+      {
+          Set tTotal = pA + pB + pC
+          Set tCount = 3
+          Quit tTotal / tCnt
+      }
+
+      }
+check: |
+  try { set ok=((##class(Bench11.Stats).Average(3,6,9)=6)&&(##class(Bench11.Stats).Average(1,2,3)=2)&&(##class(Bench11.Stats).Average(0,0,0)=0)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench11.Stats
+    content: |
+      Class Bench11.Stats Extends %RegisteredObject
+      {
+
+      ClassMethod Average(pA As %Numeric, pB As %Numeric, pC As %Numeric) As %Numeric
+      {
+          Set tTotal = pA + pB + pC
+          Set tCount = 3
+          Quit tTotal / tCount
+      }
+
+      }
+tags: [runtime-undefined]

@@ -52,6 +52,12 @@
 #   `%NOINDEX`, `CREATE INDEX` on a table that already holds rows). Each check was run live on a
 #   scratch IRIS 2026.2: false against the stub, true against the reference.
 #
+# - **SKILL-37 to SKILL-44 are holdout from the day they were written (135, 2026-10-11).** SKILL-37 to
+#   SKILL-40 measure `objectscript-tdd` (a class that compiles clean and fails when called: a typo'd
+#   local twice, a misspelled dynamic method name, `Quit` with a value inside `For`); SKILL-41 to
+#   SKILL-44 measure `iris-agentic-dev` (loading an XML export: two classes, a one-line export, a
+#   parameter, a replaced base class). Each check was run live on a scratch IRIS 2026.2.
+#
 # One caveat that the split cannot fix and the report has to carry instead: I wrote the 42 corpus
 # tasks knowing what iad's 81 tools can do. Authoring is not tuning — no description, prompt or skill
 # was changed while looking at a result from these tasks — but a corpus written by the tool author is
@@ -147,4 +153,12 @@ holdout = [
   "SKILL-34",
   "SKILL-35",
   "SKILL-36",
+  "SKILL-37",
+  "SKILL-38",
+  "SKILL-39",
+  "SKILL-40",
+  "SKILL-41",
+  "SKILL-42",
+  "SKILL-43",
+  "SKILL-44",
 ]

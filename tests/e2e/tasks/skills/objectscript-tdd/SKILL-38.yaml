@@ -1,0 +1,57 @@
+id: SKILL-38
+prompt: |
+  Bench12.Dispatch.Run(pKind) in the BENCHMARK namespace must call the handler for its kind and
+  return what the handler returns: kind "A" goes to HandleA and kind "B" to HandleB. Both handlers are
+  in the class. The class compiles clean, but a call for kind "A" gets an error. Fix it. Leave the
+  class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-tdd
+fixtures:
+  - name: Bench12.Dispatch
+    content: |
+      Class Bench12.Dispatch Extends %RegisteredObject
+      {
+
+      ClassMethod HandleA() As %String
+      {
+          Quit "handled A"
+      }
+
+      ClassMethod HandleB() As %String
+      {
+          Quit "handled B"
+      }
+
+      ClassMethod Run(pKind As %String) As %String
+      {
+          Quit $CLASSMETHOD("Bench12.Dispatch", "Handel" _ pKind)
+      }
+
+      }
+check: |
+  try { set ok=((##class(Bench12.Dispatch).Run("A")="handled A")&&(##class(Bench12.Dispatch).Run("B")="handled B")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench12.Dispatch
+    content: |
+      Class Bench12.Dispatch Extends %RegisteredObject
+      {
+
+      ClassMethod HandleA() As %String
+      {
+          Quit "handled A"
+      }
+
+      ClassMethod HandleB() As %String
+      {
+          Quit "handled B"
+      }
+
+      ClassMethod Run(pKind As %String) As %String
+      {
+          Quit $CLASSMETHOD("Bench12.Dispatch", "Handle" _ pKind)
+      }
+
+      }
+tags: [runtime-dynamic-call]
