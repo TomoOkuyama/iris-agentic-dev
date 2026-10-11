@@ -565,6 +565,14 @@ def render_row(skill: str, row: dict) -> str:
             f"  diff/pair {first['cost_diff']:+.2f} 95% {_ci(first.get('cost_diff_ci'))}"
             f"  cheaper in {first['share_cheaper']:.0%} of tasks"
         )
+    tok = first.get("tokens") or {}
+    if tok:
+        def one(t):
+            return (
+                f"in {t.get('input', 0):,} out {t.get('output', 0):,} "
+                f"cache r{t.get('cache_read', 0):,}/w{t.get('cache_write', 0):,}"
+            )
+        lines.append(f"  tokens    tools {one(tok.get('tools', {}))} | treated {one(tok.get('treated', {}))}")
     if first.get("quality_available"):
         lines.append(
             f"  quality   diff {first['quality_diff']:+.2f} 95% {_ci(first.get('quality_diff_ci'))}"

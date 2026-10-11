@@ -609,3 +609,11 @@ def test_a_continuation_on_another_build_is_refused(tmp_path):
         task_skill={t: SKILL for t in TASKS},
     )
     assert "one binary" in report["skills"][SKILL]["verdict"]
+
+
+def test_render_reports_tokens_for_both_arms():
+    row = evaluate(run_lines(only_skill_passes(4)))
+    text = evidence.render_row(SKILL, {**row, "ledger_ids": ["IMP-001"], "spend_usd": 1.0,
+                                         "builds": [("1.5.0", "ccccccc")], "train_runs": 0})
+    assert "tokens" in text
+    assert "tools in" in text and "treated in" in text
