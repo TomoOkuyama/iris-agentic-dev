@@ -15,7 +15,9 @@ gives the tables below). Nothing here is typed in from memory.
   were read while editing skills in 130 and 132 and moved to train (`tests/e2e/tasks/skills/read.toml`).
   The tasks I authored in 135 were written from the skill text, so they test whether the skill's own
   facts help. They do not test whether the skill helps on work I did not think of.
-- Every session ran with gpt-4.1 through opencode, with the iad tools. The `tools` arm has the tools.
+- The first study ran every session on gpt-4.1 through opencode, with the iad tools. The second ran on
+  `gpt-6-luna` at high reasoning effort on Bedrock (see Second study). The two are never pooled: the model
+  and effort are on every session line and the report keeps them in separate rows. The `tools` arm has the tools.
   The `tools+<skill>` arm adds one skill, preloaded, with the instruction to load it.
 - Cost is opencode's measured `step_finish.cost`. Tokens come from the same events.
 
@@ -53,6 +55,56 @@ Why each one failed, in the terms of the criteria:
   completion is not worse.
 - **`objectscript-tdd`**: both arms passed all 15 pairs. The skill added cost.
 - **`iris-sql`**: see Stopped.
+
+## Second study: gpt-6-luna on Bedrock, high effort
+
+I moved the evals to Bedrock after the first study, because the gpt-4.1 key path was the expensive one and
+Bedrock holds the model family. The model is `bedrock-oai/global.openai.gpt-6-luna` through Bedrock's
+OpenAI-compatible endpoint with the long-term key `bclaude` uses, at reasoning effort high. The Converse
+route cannot carry effort through opencode's Bedrock SDK (it rejects the `redactedContent` stream block),
+so this route was needed. Prices are OpenAI's list rates ($0.10 in, $0.50 out, $0.01 cache read per million
+tokens); Bedrock's own rate for the model was not checked.
+
+Nothing from the gpt-4.1 study carries over, so every skill was measured again with its own paired `tools`
+arm, same tasks, same criteria. The skill was loaded in 100% of treated sessions in every run.
+
+| Skill                        | Run                    | Pairs | Only skill (b) | Only tools (c) | Passes tools / skill | Unscored | Calls ratio       | Cost ratio        |
+| ---------------------------- | ---------------------- | ----- | -------------- | -------------- | -------------------- | -------- | ----------------- | ----------------- |
+| `objectscript-guardrails`    | IMP-0047               | 20    | 0              | 0              | 20 / 20              | 1        | 0.81 [0.57, 1.16] | 0.88 [0.62, 1.30] |
+| `objectscript-guardrails`    | IMP-0050 (replication) | 21    | 0              | 2              | 21 / 19              | 0        | 0.79 [0.53, 1.14] | 0.94 [0.67, 1.25] |
+| `iris-query-plans`           | IMP-0048               | 14    | 0              | 1              | 14 / 13              | 1        | 0.93 [0.64, 1.39] | 1.01 [0.78, 1.27] |
+| `objectscript-sql-patterns`  | IMP-0053               | 17    | 0              | 1              | 17 / 16              | 1        | 0.89 [0.78, 0.98] | 1.09 [0.95, 1.32] |
+| `iris-agentic-dev`           | IMP-0049               | 15    | 0              | 0              | 15 / 15              | 0        | 0.84 [0.68, 1.04] | 1.76 [1.63, 1.95] |
+| `objectscript-tdd`           | IMP-0051               | 13    | 0              | 1              | 13 / 12              | 2        | 1.05 [0.88, 1.44] | 1.15 [0.98, 1.41] |
+| `objectscript-list-patterns` | IMP-0052               | 17    | 0              | 2              | 17 / 15              | 1        | 0.72 [0.47, 1.15] | 0.86 [0.59, 1.29] |
+| `iris-sql`                   | IMP-0054               | 15    | 0              | 0              | 15 / 15              | 0        | 1.08 [1.00, 1.16] | 1.29 [1.16, 1.45] |
+
+**No skill is net positive on luna.** The skill arm never won a pair that tools lost. In four skills tools
+won one or two pairs that the skill arm lost. The `objectscript-guardrails` completion win from the
+first study did not appear and did not replicate: 0 against 0 in the first luna run and 0 against 2 in the
+second. Calls are a little lower with the skill in some skills (`objectscript-sql-patterns` has a calls ratio
+interval of 0.78 to 0.98) and cost is level or higher; none meets the efficiency criterion, which needs a
+cost ratio of at most 0.80.
+
+The reason is a ceiling. Luna at high effort passed every usable pair with the tools alone (132 of 132);
+the skill arm passed 125 of 132. There is nothing for a skill to add. The gpt-4.1 effect (9 of 21
+passing with tools alone, 19 with the skill) was a weak-model effect: a skill helps when the agent would
+otherwise miss the fact. These tasks are written from the skills' own facts, and a stronger model knows
+them or finds them from the compiler. A fair test of a skill needs tasks where the baseline fails
+sometimes.
+
+What the infrastructure cost, so the next reader does not repeat it:
+
+- Two earlier attempts at parallel runs were invalid and are voided in the ledger (IMP-0020 to 0025, 0028,
+  0036, 0043). The task prompts name `iris-dev-iris` and its port, so an agent in a worker lane edited the
+  main container; and the iad server could see 32 registered servers and an agent picked one by name.
+  Fixed by rewriting the container and port in each prompt per lane and giving the iad server an empty
+  config home.
+- The iad MCP server did not answer in about one session in five while the host's load average was near 38.
+  Such a session is unscored, and is run again up to twice. Of the 550 luna sessions written (voided runs
+  included), 121 were run more than once. I could not reproduce the hang outside the ladder; the load is the likeliest cause.
+- Spend on the second study so far is about $5 for 8 skill runs, against about $237 for the seven runs of the
+  first study. Sessions cost $0.00 to $0.05.
 
 ## Budget
 
