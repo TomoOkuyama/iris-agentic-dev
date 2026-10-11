@@ -617,3 +617,40 @@ def test_render_reports_tokens_for_both_arms():
                                          "builds": [("1.5.0", "ccccccc")], "train_runs": 0})
     assert "tokens" in text
     assert "tools in" in text and "treated in" in text
+
+
+def test_markdown_gives_each_skill_a_heading_and_a_table_with_its_intervals():
+    row = evaluate(run_lines(only_skill_passes(4)))
+    report = {
+        "refused": None,
+        "skills": {
+            SKILL: {
+                **row,
+                "run_results": [row],
+                "ledger_ids": ["IMP-001"],
+                "spend_usd": 12.3,
+                "builds": [("1.5.0", "ccccccc")],
+                "train_runs": 0,
+                "heldout_tasks": TASKS,
+            }
+        },
+    }
+    text = evidence.render_markdown(report)
+    assert f"### {SKILL}" in text
+    assert "| Measure | Value | 95% interval |" in text
+    assert "IMP-001" in text and "1.5.0" in text and "ccccccc" in text
+    assert "b = 4" in text or "| Only the skill passed (b) | 4 |" in text
+
+
+def test_markdown_of_a_refused_report_says_refused():
+    assert "REFUSED" in evidence.render_markdown({"refused": "criteria.md changed", "skills": {}})
+
+
+def test_main_prints_markdown_when_asked(tmp_path, capsys):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text("")
+    code = evidence.main(["--ledger", str(ledger), "--criteria", str(criteria), "--root", str(tmp_path), "--markdown"])
+    assert code == 0
+    assert "### " in capsys.readouterr().out

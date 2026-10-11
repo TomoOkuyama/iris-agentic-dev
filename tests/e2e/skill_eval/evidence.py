@@ -584,6 +584,68 @@ def render_row(skill: str, row: dict) -> str:
     return "\n".join(lines)
 
 
+def _md_ci(ci, fmt="{:+.2f}"):
+    return _ci(ci, fmt) if ci and ci[0] is not None else "n/a"
+
+
+def render_markdown(report: dict) -> str:
+    """The same figures as `render`, as tables for results.md."""
+    if report["refused"]:
+        return f"REFUSED: {report['refused']}"
+    out = []
+    for skill, row in report["skills"].items():
+        runs = row.get("run_results") or []
+        out.append(f"### {skill}\n")
+        out.append(f"Verdict: **{row['verdict']}**" + (f" ({', '.join(row['kinds'])})" if row.get("kinds") else ""))
+        builds = ", ".join(f"{v} at {c}" for v, c in row.get("builds", [])) or "no build recorded"
+        out.append(
+            f"\nLedger: {', '.join(row.get('ledger_ids', [])) or 'none'}. Spend ${row.get('spend_usd', 0):.2f}. "
+            f"Build: {builds}. Held-out tasks: {', '.join(row.get('heldout_tasks', [])) or 'none'}. "
+            f"Train runs: {row.get('train_runs', 0)}.\n"
+        )
+        for number, one in enumerate(runs, start=1):
+            if "pairs" not in one:
+                continue
+            out.append(f"Run {number}: {one['verdict']}\n")
+            out.append("| Measure | Value | 95% interval |\n| --- | --- | --- |")
+            out.append(f"| Usable pairs | {one['pairs']} | |")
+            out.append(f"| Only the skill passed (b) | {one['b']} | |")
+            out.append(f"| Only tools passed (c) | {one['c']} | |")
+            rate = one["loaded_rate"]
+            out.append(f"| Skill loaded in treated sessions | {'n/a' if rate is None else f'{rate:.0%}'} | |")
+            out.append(f"| Unloaded / unscored pairs | {one['unloaded']} / {one['unscored']} | |")
+            if one.get("calls_ratio") is not None:
+                out.append(f"| Calls ratio (treated / tools) | {one['calls_ratio']:.2f} | {_md_ci(one.get('calls_ratio_ci'), '{:.2f}')} |")
+                out.append(f"| Calls difference per pair | {one['calls_diff']:+.1f} | {_md_ci(one.get('calls_diff_ci'), '{:+.1f}')} |")
+            if one.get("cost_ratio") is not None:
+                out.append(f"| Cost ratio (treated / tools) | {one['cost_ratio']:.2f} | {_md_ci(one.get('cost_ratio_ci'), '{:.2f}')} |")
+                out.append(f"| Cost difference per pair (USD) | {one['cost_diff']:+.2f} | {_md_ci(one.get('cost_diff_ci'))} |")
+                out.append(f"| Tasks where the treated arm cost less | {one['share_cheaper']:.0%} | |")
+            if one.get("quality_available"):
+                out.append(f"| Quality difference | {one['quality_diff']:+.2f} | {_md_ci(one.get('quality_diff_ci'))} |")
+            tok = one.get("tokens") or {}
+            for arm in ("tools", "treated"):
+                t = tok.get(arm) or {}
+                if t:
+                    out.append(
+                        f"| Tokens, {arm} | in {t.get('input', 0):,}, out {t.get('output', 0):,}, "
+                        f"cache read {t.get('cache_read', 0):,} / write {t.get('cache_write', 0):,} | |"
+                    )
+            crit = one.get("criteria", {})
+            out.append(
+                f"\nCriteria on this run: 1 {crit.get('1')}, 2a {crit.get('2a')}, 2b {crit.get('2b')}, "
+                f"2c {crit.get('2c')}. Left out: thin {one.get('thin_tasks') or '-'}, not held out "
+                f"{one.get('excluded_tasks') or '-'}.\n"
+            )
+        if row.get("replication"):
+            r = row["replication"]
+            out.append(
+                f"Replication: pooled route {r['pooled']}, direction route {r['direction']}, "
+                f"kinds replicated {', '.join(r['kinds']) or 'none'}.\n"
+            )
+    return "\n".join(out)
+
+
 def render(report: dict) -> str:
     if report["refused"]:
         return f"REFUSED: {report['refused']}"
@@ -634,6 +696,7 @@ def main(argv=None) -> int:
     parser.add_argument("--ledger", required=True)
     parser.add_argument("--criteria", required=True)
     parser.add_argument("--root", default=".")
+    parser.add_argument("--markdown", action="store_true", help="tables for results.md")
     args = parser.parse_args(argv)
 
     from tests.e2e.skill_eval import graded_task
@@ -656,7 +719,7 @@ def main(argv=None) -> int:
         task_skill={t.id: t.skill for t in tasks},
         root=args.root,
     )
-    print(render(report))
+    print(render_markdown(report) if args.markdown else render(report))
     return 0
 
 
