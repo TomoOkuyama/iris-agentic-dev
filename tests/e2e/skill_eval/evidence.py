@@ -464,10 +464,22 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
         )
         verdict_events = [e for e in mine if e.get("purpose") == "verdict"]
         runs, prints, builds = [], [], []
+        # A run stopped by its cap and finished by a continuation is still one run: its continuation's
+        # sessions join the run it names, so the pairs and repeats are counted once.
+        by_id, order = {}, []
         for e in verdict_events:
-            path = e["runs_file"]
-            path = path if os.path.isabs(path) else os.path.join(root, path)
-            lines = _read_lines(path) if os.path.exists(path) else []
+            target = e.get("continues")
+            if target and target in by_id:
+                by_id[target].append(e)
+            else:
+                by_id[e["id"]] = [e]
+                order.append(e["id"])
+        for run_id in order:
+            lines = []
+            for e in by_id[run_id]:
+                path = e["runs_file"] or ""
+                path = path if os.path.isabs(path) else os.path.join(root, path)
+                lines += _read_lines(path) if e["runs_file"] and os.path.exists(path) else []
             runs.append(lines)
             prints.append(_fingerprints(lines))
             for line in lines:

@@ -1161,7 +1161,7 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         values = {"subject": subject, "side": side, "repeats": str(repeats), "cap": str(float(cap)),
                   "spent": "0.0"}
         filled = [part.format(**values) if "{" in part else part for part in command]
-        return filled + (list(rule.verdict_args) if args.purpose == "verdict" else [])
+        return filled + (list(rule.verdict_args) if args.purpose == "verdict" else []) + list(args.arg or [])
 
     env = {**os.environ, **rule.env}
     imp_id = next_imp_id(events)
@@ -1198,6 +1198,7 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         "subject": subject, "side": side, "purpose": args.purpose, "runs_file": runs_file,
         "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
         "aborted": aborted, "cap": float(cap), "repeats": repeats, "commit": commit, "dirty": dirty,
+        **({"continues": args.continues} if args.continues else {}),
     }
     sha = _sha256_file(cfg.criteria) if cfg.criteria else None
     if sha:
@@ -1413,6 +1414,10 @@ def main(
     p_measure.add_argument("--yes", action="store_true", help="skip the question (estimate and cap still shown)")
     p_measure.add_argument("--cap", type=float, default=None)
     p_measure.add_argument("--repeats", type=int, default=None)
+    p_measure.add_argument("--continues", default=None, metavar="IMP-NNNN",
+                           help="this run finishes the sessions a capped run did not reach")
+    p_measure.add_argument("--arg", action="append", default=None,
+                           help="an extra argument for the harness command (repeatable, use --arg=--flag)")
     sub.add_parser("report", help="the verdict per subject against the adapter's criteria (free)")
     argv = list(sys.argv[1:] if argv is None else argv)
     # The adapter may give a verb another name (`[alias] <word> = "report"`), so a project can speak

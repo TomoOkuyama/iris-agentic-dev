@@ -562,3 +562,50 @@ def test_main_prints_the_report_from_the_ledger(tmp_path, capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "no verdict" in out
+
+
+# --- a run that was stopped by its cap and finished by a continuation --------------------------------
+
+
+def test_a_continuation_joins_the_run_it_continues(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    lines = run_lines(only_skill_passes(4))
+    first = [l for l in lines if l["run_index"] < 2 or l["task_id"] in ("SKILL-31", "SKILL-32")]
+    rest = [l for l in lines if l not in first]
+    a = write_run(tmp_path, "ladder-1", first)
+    b = write_run(tmp_path, "ladder-2", rest)
+    events = [
+        event(1, a, criteria_sha256=sha, cost_usd=40.0, aborted=True),
+        event(2, b, criteria_sha256=sha, cost_usd=9.0, continues="IMP-001"),
+    ]
+    report = evidence.skills_report(
+        events,
+        criteria_path=str(criteria),
+        heldout={SKILL: set(TASKS)},
+        task_skill={t: SKILL for t in TASKS},
+    )
+    row = report["skills"][SKILL]
+    assert row["verdict"] == "first run qualifies, awaiting replication"
+    assert row["spend_usd"] == 49.0
+    assert len(row["run_results"]) == 1, "the continuation is part of the run, not a replication"
+    assert row["run_results"][0]["pairs"] == 15
+
+
+def test_a_continuation_on_another_build_is_refused(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    lines = run_lines(even)
+    a = write_run(tmp_path, "ladder-1", lines[:20])
+    other = [{**l, "build": {**BUILD, "commit": "d" * 40}} for l in lines[20:]]
+    b = write_run(tmp_path, "ladder-2", other)
+    events = [event(1, a, criteria_sha256=sha), event(2, b, criteria_sha256=sha, continues="IMP-001")]
+    report = evidence.skills_report(
+        events,
+        criteria_path=str(criteria),
+        heldout={SKILL: set(TASKS)},
+        task_skill={t: SKILL for t in TASKS},
+    )
+    assert "one binary" in report["skills"][SKILL]["verdict"]

@@ -434,3 +434,23 @@ def test_a_try_is_capped_by_what_is_left_overall(world, tmp_path):
     _, _, runner = go_try(["try", "T-40", "--yes"], world)
     real = next(c for c in runner.calls if DRY not in c)
     assert real[real.index("--cap") + 1] == "1.0"
+
+
+# ---- a continuation of a run that hit its cap ---------------------------------------------------------
+
+
+def test_a_continuation_passes_extra_arguments_and_names_the_run_it_continues(world):
+    _, _, runner, _ = go(
+        ["measure", "objectscript-tdd", "--yes", "--continues", "IMP-0011",
+         "--arg=--task", "--arg=SKILL-31", "--arg=--start-repeat", "--arg=2"],
+        world,
+    )
+    real = next(c for c in runner.calls if DRY not in c)
+    assert real[-4:] == ["--task", "SKILL-31", "--start-repeat", "2"]
+    event = ledger(world)[-1]
+    assert event["continues"] == "IMP-0011"
+
+
+def test_a_plain_measure_has_no_continues_field(world):
+    go(["measure", "objectscript-tdd", "--yes"], world)
+    assert "continues" not in ledger(world)[-1]
