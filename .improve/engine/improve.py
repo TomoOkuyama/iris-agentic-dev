@@ -1191,6 +1191,12 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         return 0
 
     commit, dirty = git_state()
+    # Reserved before the harness starts, so a second run started meanwhile reads a ledger that
+    # already holds this id and takes the next one. Read again here: the id taken at the top is
+    # from before the estimate and the question.
+    imp_id = next_imp_id(read_ledger(cfg))
+    append_ledger(cfg, {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "id": imp_id, "event": "claim",
+                        "who": who, "subject": subject})
     extra = {"cwd": args.cwd} if args.cwd else {}
     result = runner(fill(rule.command), env, rule.timeout_seconds, live=True, **extra)
     costs = re.findall(rule.cost_regex, result.stdout)

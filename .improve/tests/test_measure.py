@@ -531,3 +531,36 @@ def test_every_try_rule_runs_on_the_same_model_as_measure():
     cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
     for r in cfg.tries:
         assert "--model" in r.command and "--effort" in r.command, r.tasks
+
+
+# ---- parallel runs must not share an id --------------------------------------------------------------
+
+
+def test_a_run_reserves_its_id_in_the_ledger_before_the_harness_starts(world):
+    seen = {}
+
+    class Peek(Runner):
+        def __call__(self, argv, env, timeout, live=False):
+            if DRY not in argv:
+                seen["ledger"] = ledger(world)
+            return super().__call__(argv, env, timeout, live)
+
+    go(["measure", "objectscript-tdd", "--yes"], world, runner=Peek())
+    claims = [e for e in seen["ledger"] if e["event"] == "claim"]
+    assert len(claims) == 1 and claims[0]["subject"] == "objectscript-tdd"
+    assert ledger(world)[-1]["id"] == claims[0]["id"]
+
+
+def test_a_second_run_started_while_the_first_is_running_gets_the_next_id(world):
+    ids = []
+
+    class Peek(Runner):
+        def __call__(self, argv, env, timeout, live=False):
+            if DRY not in argv and not ids:
+                ids.append("first")
+                go(["measure", "iris-sql", "--yes"], world, runner=Runner())
+            return super().__call__(argv, env, timeout, live)
+
+    go(["measure", "objectscript-tdd", "--yes"], world, runner=Peek())
+    measures = [e for e in ledger(world) if e["event"] == "measure"]
+    assert len({e["id"] for e in measures}) == 2
