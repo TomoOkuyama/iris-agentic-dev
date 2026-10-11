@@ -651,7 +651,7 @@ def run_ladder(
     once `spent` reaches `cap` the run raises `LadderAborted` before the next session starts. 132's
     holdout was estimated at $1.02 and cost $12.29, so the estimate alone cannot be the bound.
     """
-    from tests.e2e.skill_eval.cost_estimator import session_cost
+    from tests.e2e.skill_eval.cost_estimator import session_cost, session_tokens
     from tests.e2e.skill_eval.pilot import run_one
 
     key = openai_api_key or os.environ.get("OPENAI_API_KEY")
@@ -693,9 +693,17 @@ def run_ladder(
                     driver=driver,
                     on_events=take_events,
                 )
-                cost = session_cost(streams.pop()) if streams else 0.0
+                stream = streams.pop() if streams else []
+                cost = session_cost(stream)
                 spent += cost
-                run = type(run)(**{**asdict(run), "run_index": repeat})
+                run = type(run)(
+                    **{
+                        **asdict(run),
+                        "run_index": repeat,
+                        "tokens": session_tokens(stream),
+                        "cost_usd": cost,
+                    }
+                )
                 runs.append(run)
                 print(
                     f"{run.task_id:<12} {run.arm:<34} "
@@ -906,7 +914,9 @@ def _main(argv=None) -> int:
 
     if args.arm:
         if pooled:
-            print("--arm is not available on the pooled rung: its arms are built per task")
+            print(
+                "--arm is not available on the pooled rung: its arms are built per task"
+            )
             return 2
         # The tools ladder can also run the opt-in arms (skills-only) when they are named.
         offered = list(arms) + (list(OPTIONAL_ARMS) if args.ladder == "tools" else [])
