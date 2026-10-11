@@ -123,6 +123,7 @@ tasks = [
   "SKILL-28", "SKILL-29", "SKILL-30", "SKILL-31", "SKILL-32", "SKILL-33", "SKILL-34", "SKILL-35",
   "SKILL-36", "SKILL-37", "SKILL-38", "SKILL-39", "SKILL-40", "SKILL-41", "SKILL-42", "SKILL-43",
   "SKILL-44", "SKILL-45", "SKILL-46", "SKILL-47",
+  "SKILL-48", "SKILL-49", "SKILL-50", "SKILL-51",
 ]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
