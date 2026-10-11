@@ -351,3 +351,40 @@ def test_a_retried_session_records_how_many_attempts_it_took(monkeypatch):
     monkeypatch.setattr(pilot, "run_one", lambda task, arm, **kw: next(answers))
     runs = ladder.run_ladder([FakeTask("C")], (TOOLS,), model=LUNA)
     assert runs[0].attempts == 3
+
+
+# --- open-weight models on Bedrock, reached through the chat-completions route -----------------------------
+
+OSS20 = "bedrock-compat/openai.gpt-oss-20b-1:0"
+OSS120 = "bedrock-compat/openai.gpt-oss-120b-1:0"
+
+
+def test_an_open_weight_bedrock_model_uses_the_chat_completions_sdk():
+    from tests.e2e.skill_eval.models import BEDROCK_OPENAI_URL, provider_block
+
+    block = provider_block(OSS20, api_key="t")["bedrock-compat"]
+    assert block["npm"] == "@ai-sdk/openai-compatible"
+    assert block["options"]["baseURL"] == BEDROCK_OPENAI_URL
+    assert block["options"]["apiKey"] == "{env:AWS_BEARER_TOKEN_BEDROCK}"
+    model = block["models"]["openai.gpt-oss-20b-1:0"]
+    assert model["tool_call"] is True and model["cost"]["input"] > 0 and model["cost"]["output"] > 0
+
+
+def test_the_open_weight_models_take_the_same_bedrock_key():
+    from tests.e2e.skill_eval.models import api_key_for
+
+    assert api_key_for(OSS120, {"AWS_BEARER_TOKEN_BEDROCK": "k"}) == "k"
+
+
+def test_effort_is_refused_on_the_chat_completions_route_until_it_is_wired():
+    from tests.e2e.skill_eval.models import UnknownModel, provider_block
+
+    with pytest.raises(UnknownModel):
+        provider_block(OSS20, api_key="t", effort="high")
+
+
+def test_an_unpriced_open_weight_model_is_refused():
+    from tests.e2e.skill_eval.models import UnknownModel, provider_block
+
+    with pytest.raises(UnknownModel):
+        provider_block("bedrock-compat/openai.unpriced", api_key="t")

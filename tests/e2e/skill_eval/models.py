@@ -27,7 +27,19 @@ PRICES = {
     },
 }
 
-CREDENTIAL_ENV = {"openai": "OPENAI_API_KEY", "bedrock-oai": "AWS_BEARER_TOKEN_BEDROCK"}
+#: The open-weight models answer on the chat-completions route only; the SDK that route needs does not
+#: carry reasoning effort here. Prices are the usual list rates for these models and were not checked
+#: against Bedrock's own, so cost figures for them are list-price figures.
+COMPAT_PRICES = {
+    "openai.gpt-oss-20b-1:0": {"input": 0.07, "output": 0.3},
+    "openai.gpt-oss-120b-1:0": {"input": 0.15, "output": 0.6},
+}
+
+CREDENTIAL_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "bedrock-oai": "AWS_BEARER_TOKEN_BEDROCK",
+    "bedrock-compat": "AWS_BEARER_TOKEN_BEDROCK",
+}
 
 
 class UnknownModel(ValueError):
@@ -52,7 +64,7 @@ def api_key_for(model: str, env) -> str:
     if not key:
         hint = (
             " Source ~/.secrets.env first; it holds the long-term key bclaude uses."
-            if provider == "bedrock-oai"
+            if provider in ("bedrock-oai", "bedrock-compat")
             else ""
         )
         raise MissingCredential(
@@ -97,6 +109,36 @@ def provider_block(model: str, api_key: str, effort: str | None = None) -> dict:
                     "apiKey": "{env:AWS_BEARER_TOKEN_BEDROCK}",
                 },
                 "models": {model_id: entry},
+            }
+        }
+    if provider == "bedrock-compat":
+        prices = COMPAT_PRICES.get(model_id)
+        if prices is None:
+            raise UnknownModel(
+                f"{model_id!r} has no declared price. Known: {', '.join(sorted(COMPAT_PRICES))}"
+            )
+        if effort:
+            raise UnknownModel(
+                "effort is not wired for the chat-completions route, so the run would be labelled "
+                "with a setting it did not use"
+            )
+        return {
+            "bedrock-compat": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Bedrock chat completions",
+                "options": {
+                    "baseURL": BEDROCK_OPENAI_URL,
+                    "apiKey": "{env:AWS_BEARER_TOKEN_BEDROCK}",
+                },
+                "models": {
+                    model_id: {
+                        "name": model_id,
+                        "tool_call": True,
+                        "reasoning": True,
+                        "limit": {"context": 128000, "output": 16000},
+                        "cost": dict(prices),
+                    }
+                },
             }
         }
     raise UnknownModel(f"{model!r} names a provider this harness cannot reach")
