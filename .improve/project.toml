@@ -227,3 +227,25 @@ estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds 
 [measure.env]
 PYTHONPATH = "."
 IAD_BINARY = "target/debug/iris-agentic-dev"
+
+# The tools ladder on the Bedrock model: `tools` against `tools+skills` (every skill installed, none
+# preloaded) over the holdout tools corpus, the shape 121 measured on gpt-4.1. A survey run: recorded for
+# its spend, never read as a skill verdict.
+[[measure]]
+subjects = ["tools-ladder"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "tools", "--side", "{side}", "--arm", "tools", "--arm", "tools+skills",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"

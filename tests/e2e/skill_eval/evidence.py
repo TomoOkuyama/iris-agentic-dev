@@ -479,7 +479,10 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
             f"{criteria_path} changed after the first 135 run event recorded its hash, so no verdict "
             "is given. A changed criterion is a new study with new runs"
         )
-    skills = sorted(set(heldout) | {_subject(e) for e in measures if _subject(e)})
+    skills = sorted(
+        set(heldout)
+        | {_subject(e) for e in measures if _subject(e) and e.get("purpose") != "survey"}
+    )
     for skill in skills:
         mine = sorted(
             (e for e in measures if _subject(e) == skill), key=lambda e: e["ts"]

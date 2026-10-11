@@ -777,3 +777,15 @@ def test_a_voided_run_is_left_out_of_every_figure(tmp_path):
     assert row["verdict"] == "not net positive"
     assert row["ledger_ids"] == ["IMP-002"]
     assert row["voided"] == [{"id": "IMP-001", "reason": "wrong container"}]
+
+
+def test_a_survey_run_makes_no_skill_row(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    run = write_run(tmp_path, "ladder-1", run_lines(even))
+    events = [{**event(1, run, criteria_sha256=sha), "subject": "tools-ladder", "purpose": "survey"}]
+    report = evidence.skills_report(
+        events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
+    )
+    assert list(report["skills"]) == [SKILL]

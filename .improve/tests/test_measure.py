@@ -585,3 +585,14 @@ def test_void_needs_a_reason_and_a_known_id(world):
         go(["void", "IMP-0099"], world)
     code, text, _, _ = go(["void", "IMP-0404", "--reason", "x"], world)
     assert code == 2 and "IMP-0404" in text
+
+
+# ---- a survey run: the holdout side, recorded, never a verdict --------------------------------------------
+
+
+def test_a_survey_run_uses_the_holdout_side_and_is_recorded_as_a_survey(world):
+    _, _, runner, _ = go(["measure", "tools-ladder", "--purpose", "survey", "--yes"], world)
+    real = next(c for c in runner.calls if DRY not in c)
+    assert real[real.index("--side") + 1] == "holdout"
+    event = ledger(world)[-1]
+    assert event["purpose"] == "survey" and event["side"] == "holdout"

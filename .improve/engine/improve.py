@@ -1147,7 +1147,7 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
     subject = args.subject
     rule = (next((r for r in cfg.measures if subject in r.subjects), None)
             or next((r for r in cfg.measures if not r.subjects), cfg.measures[0]))
-    side = "holdout" if args.purpose == "verdict" else "train"
+    side = "train" if args.purpose == "train" else "holdout"
     events = read_ledger(cfg)
     spent_total = programme_spend(cfg, events)
     spent_subject = programme_spend(cfg, events, subject)
@@ -1437,8 +1437,9 @@ def main(
         "measure", help="run the harness for one subject and record it in the ledger (spends)"
     )
     p_measure.add_argument("subject")
-    p_measure.add_argument("--purpose", choices=("verdict", "train"), default="verdict",
-                           help="verdict = the subject's held-out tasks; train = its train tasks")
+    p_measure.add_argument("--purpose", choices=("verdict", "train", "survey"), default="verdict",
+                           help="verdict = the subject's held-out tasks; train = its train tasks; "
+                                "survey = a held-out run recorded for its spend and never read as a verdict")
     p_measure.add_argument("--yes", action="store_true", help="skip the question (estimate and cap still shown)")
     p_measure.add_argument("--cap", type=float, default=None)
     p_measure.add_argument("--repeats", type=int, default=None)
