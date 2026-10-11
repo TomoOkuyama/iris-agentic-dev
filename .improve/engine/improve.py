@@ -1021,6 +1021,7 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         yes = sum(1 for r in treated_rows if r.get(rule.applied_field) is True)
         no = sum(1 for r in treated_rows if r.get(rule.applied_field) is False)
         applied = {"yes": yes, "no": no, "unknown": len(treated_rows) - yes - no}
+    criteria_sha = _criteria_sha256(cfg)
     append_ledger(cfg, {
         "ts": stamp(), "id": imp_id, "event": "run", "who": who, "task": task_id,
         "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
@@ -1029,7 +1030,7 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         "record": os.path.relpath(record_path, cfg.root),
         **({"applied": applied} if applied is not None else {}),
         **({"subject": subject} if subject else {}),
-        **({"criteria_sha256": _sha256_file(cfg.criteria)} if cfg.criteria and _sha256_file(cfg.criteria) else {}),
+        **({"criteria_sha256": criteria_sha} if criteria_sha else {}),
     })
 
     out("")
@@ -1121,9 +1122,12 @@ def programme_spend(cfg: Config, events: list, subject: Optional[str] = None) ->
     return total
 
 
-def _sha256_file(path: str) -> Optional[str]:
+def _criteria_sha256(cfg: Config) -> Optional[str]:
+    """The criteria file's sha256; None when the adapter names none or it cannot be read."""
+    if not cfg.criteria:
+        return None
     try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        return hashlib.sha256(Path(cfg.criteria).read_bytes()).hexdigest()
     except OSError:
         return None
 
@@ -1141,8 +1145,8 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         out("The adapter has no [[measure]] rule, so improve does not know how to run a subject.")
         return 2
     subject = args.subject
-    rule = next((r for r in cfg.measures if subject in r.subjects), None) \
-        or next((r for r in cfg.measures if not r.subjects), cfg.measures[0])
+    rule = (next((r for r in cfg.measures if subject in r.subjects), None)
+            or next((r for r in cfg.measures if not r.subjects), cfg.measures[0]))
     side = "holdout" if args.purpose == "verdict" else "train"
     events = read_ledger(cfg)
     spent_total = programme_spend(cfg, events)
@@ -1205,9 +1209,9 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         "aborted": aborted, "cap": float(cap), "repeats": repeats, "commit": commit, "dirty": dirty,
         **({"continues": args.continues} if args.continues else {}),
     }
-    sha = _sha256_file(cfg.criteria) if cfg.criteria else None
-    if sha:
-        event["criteria_sha256"] = sha
+    criteria_sha = _criteria_sha256(cfg)
+    if criteria_sha:
+        event["criteria_sha256"] = criteria_sha
     append_ledger(cfg, event)
 
     new_total, new_subject = spent_total + cost, spent_subject + cost
@@ -1448,14 +1452,13 @@ def main(
         status = build_status(cfg, now=now, nightly=nightly)
         out(status_json(status) if args.json else render_status(status))
         return 0
-    if args.verb in ("measure", "report"):
-        holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
-        if args.verb == "report":
-            return run_report(cfg, runner or _stream_runner, out)
+    if args.verb == "report":
+        return run_report(cfg, runner or _stream_runner, out)
+    holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
+    if args.verb == "measure":
         return run_measure(args, cfg, runner or _stream_runner, confirm or _ask, holder,
                            git_state or _make_git_state(cfg), out, now)
     if args.verb == "try":
-        holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
         return run_try(args, cfg, nightly, validator, container_running, runner or _stream_runner,
                        confirm or _ask, holder, git_state or _make_git_state(cfg), out, now)
     return run_next(args, cfg, nightly, validator, container_running, out, now)

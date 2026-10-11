@@ -893,7 +893,9 @@ def session_line(
     run: dict, *, side: str, build: dict | None, fingerprints: dict | None = None
 ) -> dict:
     """What one finished session writes to the incremental file."""
-    line = {**run, "side": side, **({"build": build} if build else {})}
+    line = {**run, "side": side}
+    if build:
+        line["build"] = build
     fingerprint = (fingerprints or {}).get(run.get("task_id"))
     if fingerprint:
         line["task_fingerprint"] = fingerprint

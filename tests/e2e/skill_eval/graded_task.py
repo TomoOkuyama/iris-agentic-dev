@@ -36,6 +36,7 @@ Validation is two-stage, because the two halves can answer different amounts on 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -63,8 +64,9 @@ SKILL_TASK_DIR = os.path.join(BENCHMARK_DIR, "skills")
 
 #: Skill tasks authored for 135, one subdirectory per skill: `skills/<skill>/<TASK>.yaml`. The directory
 #: name is the skill the task measures, and the loader refuses a task whose `skill:` disagrees.
-AUTHORED_DIR = os.path.join(os.path.dirname(__file__), "..", "tasks", "skills")
-AUTHORED_DIR = os.path.normpath(AUTHORED_DIR)
+AUTHORED_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "tasks", "skills")
+)
 
 #: Everything the split has to cover. Not a glob over `BENCHMARK_DIR`: a directory added by accident
 #: should not silently join the corpus, and the split file itself lives there.
@@ -150,8 +152,6 @@ class GradedTask:
 def task_fingerprint(task: GradedTask) -> str:
     """A hash of everything about a task that decides its outcome. A run records it, so a task edited
     between two runs cannot be pooled as if it were the same task (135)."""
-    import hashlib
-
     body = json.dumps(
         {
             "prompt": task.prompt,
@@ -249,13 +249,13 @@ def validate_shape(task: GradedTask) -> None:
             f"never set up (fixture: {', '.join(sorted(fixture_names))}). That is a second task in "
             "the same file, not the answer to this one"
         )
-    found = [token for token in NONDETERMINISTIC if token in task.check]
+    found = _nondeterministic_tokens(task.check)
     if found:
         raise CorpusInvalid(
             f"{task.id}: the check reads {', '.join(found)}, so it can answer differently on a "
             "second run. FR-003's word is deterministic"
         )
-    if PASS_WORD not in task.check or FAIL_WORD not in task.check:
+    if not _prints_both_words(task.check):
         raise CorpusInvalid(
             f"{task.id}: the check must be able to print both {PASS_WORD} and {FAIL_WORD}; a check "
             "with only one of them cannot discriminate"
@@ -267,17 +267,25 @@ def validate_shape(task: GradedTask) -> None:
                 f"{task.id}: quality check {quality.name!r} is declared twice"
             )
         names.add(quality.name)
-        found = [token for token in NONDETERMINISTIC if token in quality.check]
+        found = _nondeterministic_tokens(quality.check)
         if found:
             raise CorpusInvalid(
                 f"{task.id}: quality check {quality.name!r} reads {', '.join(found)}, so it can "
                 "answer differently on a second run"
             )
-        if PASS_WORD not in quality.check or FAIL_WORD not in quality.check:
+        if not _prints_both_words(quality.check):
             raise CorpusInvalid(
                 f"{task.id}: quality check {quality.name!r} must be able to print both "
                 f"{PASS_WORD} and {FAIL_WORD}"
             )
+
+
+def _nondeterministic_tokens(check: str) -> list[str]:
+    return [token for token in NONDETERMINISTIC if token in check]
+
+
+def _prints_both_words(check: str) -> bool:
+    return PASS_WORD in check and FAIL_WORD in check
 
 
 def load_dir(path: str) -> tuple[GradedTask, ...]:
@@ -340,22 +348,21 @@ def all_tasks() -> tuple[GradedTask, ...]:
     """
     tasks: list[GradedTask] = []
     seen: dict[str, str] = {}
-    for directory in TASK_DIRS:
-        for task in load_dir(directory):
-            if task.id in seen:
-                raise CorpusInvalid(
-                    f"{task.id} is declared twice: {seen[task.id]} and {directory}. One ID is one "
-                    "task, or the arms pair rows that are not the same task"
-                )
-            seen[task.id] = directory
-            tasks.append(task)
-    for task in load_authored():
+
+    def add(task: GradedTask, source: str) -> None:
         if task.id in seen:
             raise CorpusInvalid(
-                f"{task.id} is declared twice: {seen[task.id]} and {AUTHORED_DIR}. One ID is one task"
+                f"{task.id} is declared twice: {seen[task.id]} and {source}. One ID is one "
+                "task, or the arms pair rows that are not the same task"
             )
-        seen[task.id] = AUTHORED_DIR
+        seen[task.id] = source
         tasks.append(task)
+
+    for directory in TASK_DIRS:
+        for task in load_dir(directory):
+            add(task, directory)
+    for task in load_authored():
+        add(task, AUTHORED_DIR)
     return tuple(sorted(tasks, key=lambda task: task.id))
 
 

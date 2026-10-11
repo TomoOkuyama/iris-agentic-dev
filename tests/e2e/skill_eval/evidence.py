@@ -81,13 +81,19 @@ def _ratio(pairs):
 
 
 def _index(lines, arm):
-    out = {}
-    for line in lines:
-        if line.get("arm") == arm:
-            out[(line["task_id"], line["run_index"])] = (
-                line  # a later line replaces an earlier one
-            )
-    return out
+    # A later line replaces an earlier one.
+    return {
+        (line["task_id"], line["run_index"]): line
+        for line in lines
+        if line.get("arm") == arm
+    }
+
+
+def _wins(pairs):
+    """(b, c): pairs only the treated arm passed, and pairs only the tools arm passed."""
+    b = sum(1 for t, s in pairs if s["passed"] and not t["passed"])
+    c = sum(1 for t, s in pairs if t["passed"] and not s["passed"])
+    return b, c
 
 
 def _tokens(lines):
@@ -145,24 +151,21 @@ def _analyse(lines, skill, heldout, *, check_repeats):
     }
     pairs = [pair for task in eligible for pair in usable_by_task[task]]
 
-    b = sum(1 for t, s in pairs if s["passed"] and not t["passed"])
-    c = sum(1 for t, s in pairs if t["passed"] and not s["passed"])
+    b, c = _wins(pairs)
 
     per_task = {}
     for task in eligible:
         group = usable_by_task[task]
+        task_b, task_c = _wins(group)
+        costed = _has_cost(group)
         per_task[task] = {
             "pairs": len(group),
-            "b": sum(1 for t, s in group if s["passed"] and not t["passed"]),
-            "c": sum(1 for t, s in group if t["passed"] and not s["passed"]),
+            "b": task_b,
+            "c": task_c,
             "calls_t": sum(t.get("tool_calls") or 0 for t, _ in group),
             "calls_s": sum(s.get("tool_calls") or 0 for _, s in group),
-            "cost_t": sum(t["cost_usd"] for t, _ in group)
-            if _has_cost(group)
-            else None,
-            "cost_s": sum(s["cost_usd"] for _, s in group)
-            if _has_cost(group)
-            else None,
+            "cost_t": sum(t["cost_usd"] for t, _ in group) if costed else None,
+            "cost_s": sum(s["cost_usd"] for _, s in group) if costed else None,
             "quality": _task_quality(group),
         }
 
@@ -411,7 +414,7 @@ def evaluate_skill(runs, skill, heldout=None) -> dict:
     each_not_worse = all(one["criteria"]["1"] for one in later)
     held = {"pooled": False, "direction": False, "kinds": []}
     for key in KINDS:
-        if key not in [k for k in KINDS if first["criteria"][k]]:
+        if not first["criteria"][key]:
             continue
         pooled_ok = (
             pooled["criteria"]["1"]
@@ -482,9 +485,12 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
         for run_id in order:
             lines = []
             for e in by_id[run_id]:
-                path = e["runs_file"] or ""
-                path = path if os.path.isabs(path) else os.path.join(root, path)
-                lines += _read_lines(path) if e["runs_file"] and os.path.exists(path) else []
+                if not e["runs_file"]:
+                    continue
+                # os.path.join keeps an absolute runs_file as it is.
+                path = os.path.join(root, e["runs_file"])
+                if os.path.exists(path):
+                    lines += _read_lines(path)
             runs.append(lines)
             prints.append(_fingerprints(lines))
             for line in lines:
@@ -493,14 +499,7 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
                     pair = (b.get("binary_version"), (b.get("commit") or "")[:7])
                     if pair not in builds:
                         builds.append(pair)
-        verdict = (
-            evaluate_skill(runs, skill, heldout.get(skill))
-            if runs
-            else {
-                "verdict": "no verdict (no held-out run yet)",
-                "runs": [],
-            }
-        )
+        verdict = evaluate_skill(runs, skill, heldout.get(skill))
         changed = sorted(
             task
             for task in {t for p in prints for t in p}
@@ -512,7 +511,7 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
                 "verdict": f"no verdict (task file changed between runs: {', '.join(changed)})",
             }
         row = {
-            **{k: v for k, v in verdict.items() if k not in ("runs",)},
+            **{k: v for k, v in verdict.items() if k != "runs"},
             "run_results": verdict.get("runs", []),
             "ledger_ids": [e["id"] for e in mine],
             "spend_usd": round(sum(e.get("cost_usd") or 0.0 for e in mine), 4),
@@ -589,10 +588,6 @@ def render_row(skill: str, row: dict) -> str:
     return "\n".join(lines)
 
 
-def _md_ci(ci, fmt="{:+.2f}"):
-    return _ci(ci, fmt) if ci and ci[0] is not None else "n/a"
-
-
 def render_markdown(report: dict) -> str:
     """The same figures as `render`, as tables for results.md."""
     if report["refused"]:
@@ -620,14 +615,14 @@ def render_markdown(report: dict) -> str:
             out.append(f"| Skill loaded in treated sessions | {'n/a' if rate is None else f'{rate:.0%}'} | |")
             out.append(f"| Unloaded / unscored pairs | {one['unloaded']} / {one['unscored']} | |")
             if one.get("calls_ratio") is not None:
-                out.append(f"| Calls ratio (treated / tools) | {one['calls_ratio']:.2f} | {_md_ci(one.get('calls_ratio_ci'), '{:.2f}')} |")
-                out.append(f"| Calls difference per pair | {one['calls_diff']:+.1f} | {_md_ci(one.get('calls_diff_ci'), '{:+.1f}')} |")
+                out.append(f"| Calls ratio (treated / tools) | {one['calls_ratio']:.2f} | {_ci(one.get('calls_ratio_ci'), '{:.2f}')} |")
+                out.append(f"| Calls difference per pair | {one['calls_diff']:+.1f} | {_ci(one.get('calls_diff_ci'), '{:+.1f}')} |")
             if one.get("cost_ratio") is not None:
-                out.append(f"| Cost ratio (treated / tools) | {one['cost_ratio']:.2f} | {_md_ci(one.get('cost_ratio_ci'), '{:.2f}')} |")
-                out.append(f"| Cost difference per pair (USD) | {one['cost_diff']:+.2f} | {_md_ci(one.get('cost_diff_ci'))} |")
+                out.append(f"| Cost ratio (treated / tools) | {one['cost_ratio']:.2f} | {_ci(one.get('cost_ratio_ci'), '{:.2f}')} |")
+                out.append(f"| Cost difference per pair (USD) | {one['cost_diff']:+.2f} | {_ci(one.get('cost_diff_ci'))} |")
                 out.append(f"| Tasks where the treated arm cost less | {one['share_cheaper']:.0%} | |")
             if one.get("quality_available"):
-                out.append(f"| Quality difference | {one['quality_diff']:+.2f} | {_md_ci(one.get('quality_diff_ci'))} |")
+                out.append(f"| Quality difference | {one['quality_diff']:+.2f} | {_ci(one.get('quality_diff_ci'))} |")
             tok = one.get("tokens") or {}
             for arm in ("tools", "treated"):
                 t = tok.get(arm) or {}
@@ -661,8 +656,9 @@ def render(report: dict) -> str:
 
 # --- the command ------------------------------------------------------------------------------------------
 
-READ_PATH = os.path.join(os.path.dirname(__file__), "..", "tasks", "skills", "read.toml")
-READ_PATH = os.path.normpath(READ_PATH)
+READ_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "tasks", "skills", "read.toml")
+)
 
 
 def load_read(path: str = READ_PATH) -> dict:
