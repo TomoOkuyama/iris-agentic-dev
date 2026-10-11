@@ -120,6 +120,10 @@ class ArmRun:
     #: Dollars the session billed (sum of `step_finish.cost`). None for a record from before 135, which
     #: printed the figure and did not store it.
     cost_usd: float | None = None
+    #: The fraction of the task's `quality_checks` that passed, beside `passed` (135). None when the
+    #: task declares none or none answered.
+    quality: float | None = None
+    quality_detail: dict = field(default_factory=dict)
 
 
 #: In front of every session, every arm. Before 130 round 3 the harness leaked the operator's own
@@ -384,6 +388,8 @@ def run_one(
         reason = None
     except CheckBroken as exc:
         passed, reason = None, f"the check did not answer: {exc}"
+    # Read before the cleanup below, while IRIS still holds what the session left.
+    quality_detail = graded_task.run_quality(task) if task.quality_checks else {}
     try:
         graded_task.reset_documents(
             graded_task.created_classes(
@@ -430,6 +436,8 @@ def run_one(
         seconds=time.monotonic() - started,
         session_seconds=session_seconds,
         skill_loaded=loaded,
+        quality=graded_task.quality_score(quality_detail),
+        quality_detail=quality_detail,
     )
 
 
