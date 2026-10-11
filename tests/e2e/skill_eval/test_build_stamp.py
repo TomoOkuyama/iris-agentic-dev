@@ -154,3 +154,16 @@ def test_every_session_line_carries_the_stamp():
     )
     assert line["build"] == stamp
     assert line["side"] == "holdout"
+
+
+def test_the_ledger_changing_does_not_make_the_tree_dirty(repo, binary):
+    """Runs append to the tracked ledger while other runs are in flight, which is not a change to what
+    ran."""
+    from tests.e2e.skill_eval.build_stamp import build_stamp
+
+    (repo / ".improve").mkdir()
+    (repo / ".improve" / "ledger.jsonl").write_text("{}\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "ledger")
+    (repo / ".improve" / "ledger.jsonl").write_text("{}\n{}\n")
+    assert build_stamp(binary, repo=str(repo))["dirty"] is False

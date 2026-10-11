@@ -68,7 +68,7 @@ def build_stamp(binary: str | None, repo: str = REPO_ROOT) -> dict:
         for name in _tracked_sources(repo)
         if os.path.getmtime(os.path.join(repo, name)) > built
     )
-    dirty = bool(_git(repo, "status", "--porcelain", "--untracked-files=no").strip())
+    dirty = bool(_git(repo, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!.improve/ledger.jsonl").strip())
     return {
         "binary": binary,
         "binary_sha256": _sha256(binary),

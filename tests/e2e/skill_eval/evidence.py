@@ -501,7 +501,8 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
                 path = os.path.join(root, e["runs_file"])
                 if os.path.exists(path):
                     lines += _read_lines(path)
-            units.append((groups[run_id], lines))
+            if lines:
+                units.append((groups[run_id], lines))
         # Runs on different models (or efforts) are different studies: reported side by side,
         # never pooled and never one replicating the other.
         labels = [_model_label(lines) for _, lines in units]

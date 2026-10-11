@@ -742,3 +742,18 @@ def test_a_replication_on_the_same_model_pools_within_that_model(tmp_path):
         task_skill={t: SKILL for t in TASKS},
     )
     assert report["skills"][SKILL]["verdict"] == "net positive"
+
+
+def test_a_run_that_wrote_no_sessions_does_not_make_a_row_of_its_own(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    good = write_run(tmp_path, "ladder-1", _with_model(run_lines(even), "bedrock-oai/luna", "high"))
+    events = [
+        event(1, good, criteria_sha256=sha),
+        {**event(2, "", criteria_sha256=sha), "runs_file": None, "aborted": True},
+    ]
+    report = evidence.skills_report(
+        events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
+    )
+    assert list(report["skills"]) == [SKILL]
