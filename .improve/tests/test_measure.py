@@ -480,3 +480,42 @@ def test_this_repos_adapter_sends_the_ai_hub_skill_to_the_ai_hub_container():
     assert hub.command[hub.command.index("--container") + 1] == "iad-aihub-iris"
     default = next(r for r in cfg.measures if not r.subjects)
     assert "--web-port" not in default.command
+
+
+# ---- a continuation that has to run from an earlier checkout ---------------------------------------------
+
+
+class CwdRunner(Runner):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.cwds = []
+
+    def __call__(self, argv, env, timeout, live=False, cwd=None):
+        self.cwds.append(cwd)
+        return super().__call__(argv, env, timeout, live)
+
+
+def test_cwd_runs_the_harness_command_in_that_directory(world, tmp_path):
+    runner = CwdRunner()
+    go(["measure", "objectscript-tdd", "--yes", "--cwd", str(tmp_path)], world, runner=runner)
+    assert runner.cwds[-1] == str(tmp_path), "the real run happens there"
+
+
+def test_without_cwd_the_runner_is_not_given_one(world):
+    class Strict(Runner):
+        def __call__(self, argv, env, timeout, live=False):
+            return super().__call__(argv, env, timeout, live)
+
+    code, _, _, _ = go(["measure", "objectscript-tdd", "--yes"], world, runner=Strict())
+    assert code == 0
+
+
+def test_a_run_file_reached_through_a_symlink_is_recorded_inside_the_project(world, tmp_path):
+    real = world.root / "results"
+    link_dir = tmp_path / "wt" / "results"
+    link_dir.parent.mkdir()
+    link_dir.symlink_to(real)
+    (real / "ladder-9.runs.jsonl").write_text("")
+    runner = CwdRunner(runs_file=str(link_dir / "ladder-9.runs.jsonl"))
+    go(["measure", "objectscript-tdd", "--yes", "--cwd", str(tmp_path / "wt")], world, runner=runner)
+    assert ledger(world)[-1]["runs_file"] == "results/ladder-9.runs.jsonl"

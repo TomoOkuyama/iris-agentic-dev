@@ -1187,15 +1187,16 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
         return 0
 
     commit, dirty = git_state()
-    result = runner(fill(rule.command), env, rule.timeout_seconds, live=True)
+    extra = {"cwd": args.cwd} if args.cwd else {}
+    result = runner(fill(rule.command), env, rule.timeout_seconds, live=True, **extra)
     costs = re.findall(rule.cost_regex, result.stdout)
     cost = sum(float(c) for c in costs)
     found = re.findall(rule.runs_file_regex, result.stdout)
     runs_file = None
     if found:
         path = Path(found[-1])
-        runs_file = os.path.relpath(path if path.is_absolute() else cfg.root / path, cfg.root) \
-            if path.is_absolute() else found[-1]
+        # Resolved, so a file written through a symlink from another checkout is recorded where it lives.
+        runs_file = os.path.relpath(path.resolve(), cfg.root.resolve()) if path.is_absolute() else found[-1]
     aborted = result.returncode != 0 or runs_file is None
     event = {
         "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "id": imp_id, "event": "measure", "who": who,
@@ -1339,9 +1340,9 @@ def _make_git_state(cfg: Config) -> Callable[[], tuple]:
     return state
 
 
-def _stream_runner(argv, env, timeout, live=False) -> RunResult:
+def _stream_runner(argv, env, timeout, live=False, cwd=None) -> RunResult:
     """Run a command. With `live`, show its output as it arrives: a re-run can take minutes."""
-    proc = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd)
     lines = []
     try:
         for line in proc.stdout:
@@ -1420,6 +1421,8 @@ def main(
     p_measure.add_argument("--repeats", type=int, default=None)
     p_measure.add_argument("--continues", default=None, metavar="IMP-NNNN",
                            help="this run finishes the sessions a capped run did not reach")
+    p_measure.add_argument("--cwd", default=None,
+                           help="run the harness command from this directory (an earlier checkout)")
     p_measure.add_argument("--arg", action="append", default=None,
                            help="an extra argument for the harness command (repeatable, use --arg=--flag)")
     sub.add_parser("report", help="the verdict per subject against the adapter's criteria (free)")
