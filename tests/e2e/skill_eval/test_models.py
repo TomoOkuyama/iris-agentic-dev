@@ -200,3 +200,78 @@ def test_the_iad_server_gets_an_empty_config_home_so_it_sees_one_server():
         import os
 
         assert os.path.isdir(mcp["HOME"])
+
+
+# --- a session whose iad server never answered says nothing about the arm ---------------------------------
+
+
+def _call(name, completed, error=None, server="iris-agentic-dev"):
+    from tests.e2e.skill_eval.driver import ToolCall
+
+    return ToolCall(name=name, completed=completed, server=server, status="completed" if completed else "error", error=error)
+
+
+def test_a_session_where_every_iad_call_timed_out_is_a_dead_server():
+    from tests.e2e.skill_eval.driver import server_never_answered
+
+    calls = [
+        _call("check_config", False, "MCP error -32001: Request timed out"),
+        _call("iris_servers", False, "MCP error -32001: Request timed out"),
+        _call("bash", True, server=None),
+    ]
+    assert server_never_answered(calls, "iris-agentic-dev") is True
+
+
+def test_one_answered_call_means_the_server_was_alive():
+    from tests.e2e.skill_eval.driver import server_never_answered
+
+    calls = [
+        _call("check_config", False, "MCP error -32001: Request timed out"),
+        _call("iris_doc", True),
+        _call("iris_servers", False, "MCP error -32001: Request timed out"),
+    ]
+    assert server_never_answered(calls, "iris-agentic-dev") is False
+
+
+def test_a_single_timed_out_call_is_not_enough_to_say_dead():
+    from tests.e2e.skill_eval.driver import server_never_answered
+
+    assert server_never_answered([_call("check_config", False, "Request timed out")], "iris-agentic-dev") is False
+
+
+def test_errors_that_are_not_timeouts_are_the_agents_problem_not_the_servers():
+    from tests.e2e.skill_eval.driver import server_never_answered
+
+    calls = [_call("iris_doc", False, "NOT_FOUND"), _call("iris_doc", False, "NOT_FOUND")]
+    assert server_never_answered(calls, "iris-agentic-dev") is False
+
+
+def test_run_one_leaves_a_dead_server_session_unscored(monkeypatch):
+    from tests.e2e.skill_eval import graded_task, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_pilot import RecordingDriver, fake_task
+
+    for name in ("validate_live", "reset_documents", "apply_documents", "run_teardown"):
+        monkeypatch.setattr(graded_task, name, lambda *a, **k: None)
+    monkeypatch.setattr(graded_task, "list_classes", lambda *a, **k: set())
+    monkeypatch.setattr(graded_task, "run_check", lambda t: False)
+    monkeypatch.setattr(
+        pilot,
+        "server_never_answered",
+        lambda calls, server: True,
+    )
+    run = pilot.run_one(
+        fake_task("F-1"), TOOLS, openai_api_key="k", skill_names=(), iris_host="localhost",
+        iris_web_port="52780", iris_container="iris-dev-iris", driver=RecordingDriver(),
+    )
+    assert run.passed is None and "never answered" in run.reason
+
+
+def test_the_server_name_matches_whether_it_carries_hyphens_or_underscores():
+    from tests.e2e.skill_eval.driver import server_never_answered
+
+    calls = [
+        _call("a", False, "Request timed out", server="iris_agentic_dev"),
+        _call("b", False, "Request timed out", server="iris_agentic_dev"),
+    ]
+    assert server_never_answered(calls, "iris-agentic-dev") is True

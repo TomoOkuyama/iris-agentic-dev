@@ -108,6 +108,20 @@ def completed_calls(tool_calls) -> int:
     return sum(1 for call in tool_calls if call.completed)
 
 
+def server_never_answered(tool_calls, server: str) -> bool:
+    """True when the MCP server was asked at least twice and every ask timed out.
+
+    Such a session ran with no iad tools at all, so a failure in it is the harness's, not the arm's.
+    One answered call, or an error that is not a timeout, means the server was alive.
+    """
+    # opencode writes the server name with underscores (`iris_agentic_dev`), the config with hyphens.
+    wanted = server.replace("-", "_")
+    asked = [call for call in tool_calls if (call.server or "").replace("-", "_") == wanted]
+    return len(asked) >= 2 and all(
+        not call.completed and "timed out" in (call.error or "").lower() for call in asked
+    )
+
+
 def iad_calls(tool_calls, server: str) -> tuple[ToolCall, ...]:
     """The completed calls served by the iad MCP server, which is what reach is measured over."""
     return tuple(

@@ -46,7 +46,8 @@ from dataclasses import asdict, dataclass, field
 from tests.e2e import billing
 from tests.e2e.skill_eval import graded_task
 from tests.e2e.skill_eval.models import localize_prompt
-from tests.e2e.skill_eval.arms import ARMS, Arm, installed_skill_names
+from tests.e2e.skill_eval.arms import ARMS, MCP_SERVER_NAME, Arm, installed_skill_names
+from tests.e2e.skill_eval.driver import server_never_answered
 from tests.e2e.skill_eval.comparison import Comparison, pair_arms
 from tests.e2e.skill_eval.graded_task import CheckBroken, GradedTask
 
@@ -414,6 +415,12 @@ def run_one(
         # Unlike a class leftover, this state is invisible to the next snapshot and would decide the
         # next session's check, so the run is not scored.
         passed, reason = None, str(exc)
+    if passed is not None and server_never_answered(session.tool_calls, MCP_SERVER_NAME):
+        # The check still ran, but the arm never had its tools: the answer is the server's.
+        passed, reason = (
+            None,
+            "the iad server never answered (every call timed out), so the session ran without its tools",
+        )
     if loaded is False:
         # The check still ran, so IRIS is left as the agent left it, but the answer is not this
         # arm's: a skill the agent never read cannot be credited or blamed.
