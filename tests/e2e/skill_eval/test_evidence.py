@@ -654,3 +654,36 @@ def test_main_prints_markdown_when_asked(tmp_path, capsys):
     code = evidence.main(["--ledger", str(ledger), "--criteria", str(criteria), "--root", str(tmp_path), "--markdown"])
     assert code == 0
     assert "### " in capsys.readouterr().out
+
+
+# --- the model is part of what was measured ---------------------------------------------------------
+
+
+def test_two_models_in_one_run_get_no_verdict():
+    lines = run_lines(even)
+    for line in lines:
+        line["model"] = "bedrock-oai/global.openai.gpt-6-luna"
+        line["effort"] = "high"
+    lines[3]["effort"] = "low"
+    assert "model" in evaluate(lines)["verdict"]
+
+
+def test_replication_on_another_model_is_refused():
+    a = run_lines(only_skill_passes(4))
+    b = run_lines(only_skill_passes(4))
+    for line in a:
+        line["model"] = "openai/gpt-4.1"
+    for line in b:
+        line["model"] = "bedrock-oai/global.openai.gpt-6-luna"
+    verdict = verdict_of([a, b])
+    assert verdict["verdict"].startswith("no verdict") and "model" in verdict["verdict"]
+
+
+def test_lines_with_no_model_field_are_one_unrecorded_model_and_still_pool():
+    assert evaluate(run_lines(even))["verdict"] != "no verdict (the run's sessions name more than one model)"
+
+
+def test_the_report_row_names_the_model():
+    row = evaluate(run_lines(even))
+    text = evidence.render_row(SKILL, {**row, "ledger_ids": [], "spend_usd": 0, "builds": [], "train_runs": 0, "models": ["m high"]})
+    assert "m high" in text

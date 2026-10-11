@@ -278,6 +278,7 @@ def run_one(
     binary: str | None = None,
     driver=None,
     on_events=None,
+    effort: str | None = None,
 ) -> ArmRun:
     """One task, one arm, one session, one check.
 
@@ -318,7 +319,7 @@ def run_one(
             seconds=time.monotonic() - started,
         )
 
-    with IsolatedEnv(openai_api_key=openai_api_key) as env:
+    with IsolatedEnv(openai_api_key=openai_api_key, model=model, effort=effort) as env:
         # The driver configures its own arm and returns the environment its own session needs. Under
         # opencode that is `arms.configure` plus `OPENCODE_CONFIG_CONTENT`; under prime-agent it is a
         # sandboxed HOME holding a settings file. Reading one harness's variables here is what made

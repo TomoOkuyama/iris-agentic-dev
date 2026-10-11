@@ -101,6 +101,7 @@ command = [
   "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
   "--web-port", "52781", "--container", "iad-aihub-iris",
   "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 dry_run_flag = "--dry-run"
 repeats = 3
@@ -129,6 +130,7 @@ command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
   "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
   "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 dry_run_flag = "--dry-run"
 repeats = 3
@@ -150,6 +152,7 @@ command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
   "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
   "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 dry_run_flag = "--dry-run"
 repeats = 3
@@ -171,6 +174,7 @@ command = [
   "--ladder", "tools", "--side", "holdout", "--task", "{task}",
   "--arm", "tools", "--arm", "tools+skills",
   "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 dry_run_flag = "--dry-run"
 repeats = 3
@@ -189,6 +193,7 @@ command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",
   "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
   "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 verdict_args = ["--require-clean"]
 dry_run_flag = "--dry-run"
@@ -209,6 +214,7 @@ command = [
   "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
   "--web-port", "52781", "--container", "iad-aihub-iris",
   "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
 ]
 verdict_args = ["--require-clean"]
 dry_run_flag = "--dry-run"

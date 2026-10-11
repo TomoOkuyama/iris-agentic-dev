@@ -519,3 +519,15 @@ def test_a_run_file_reached_through_a_symlink_is_recorded_inside_the_project(wor
     runner = CwdRunner(runs_file=str(link_dir / "ladder-9.runs.jsonl"))
     go(["measure", "objectscript-tdd", "--yes", "--cwd", str(tmp_path / "wt")], world, runner=runner)
     assert ledger(world)[-1]["runs_file"] == "results/ladder-9.runs.jsonl"
+
+
+def test_this_repos_measure_rules_pick_the_model_and_effort_explicitly():
+    cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
+    for r in cfg.measures:
+        assert "--model" in r.command and "--effort" in r.command, r.subjects
+
+
+def test_every_try_rule_runs_on_the_same_model_as_measure():
+    cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
+    for r in cfg.tries:
+        assert "--model" in r.command and "--effort" in r.command, r.tasks

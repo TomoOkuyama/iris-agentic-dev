@@ -7,11 +7,22 @@ import tempfile
 import time
 
 from tests.e2e.skill_eval import provenance
+from tests.e2e.skill_eval.models import provider_block
 
 
 class IsolatedEnv:
-    def __init__(self, openai_api_key: str, keep_on_failure: bool = False):
+    def __init__(
+        self,
+        openai_api_key: str,
+        keep_on_failure: bool = False,
+        model: str | None = None,
+        effort: str | None = None,
+    ):
+        # `openai_api_key` is the key for whichever provider `model` names; the name is older than
+        # the Bedrock route.
         self._openai_api_key = openai_api_key
+        self._model = model or "openai/gpt-4.1"
+        self._effort = effort
         self._keep_on_failure = keep_on_failure
         self._tmpdir: str | None = None
         self._failed = False
@@ -93,13 +104,11 @@ class IsolatedEnv:
     @property
     def config_content(self) -> str:
         cfg: dict = {
-            "provider": {
-                "openai": {
-                    # options.apiKey is the correct path per OpenCode source
-                    # packages/opencode/src/config/provider.ts
-                    "options": {"apiKey": self._openai_api_key}
-                }
-            },
+            # openai: options.apiKey is the path per OpenCode source
+            # packages/opencode/src/config/provider.ts
+            "provider": provider_block(
+                self._model, self._openai_api_key, self._effort
+            ),
             "skills": {"paths": [self.skills_dir]},
             # `--dangerously-skip-permissions` approves every ask, so a grep on `/` walks the disk
             # until the timeout kills the session. Deny is a rule, not an ask, and still holds.

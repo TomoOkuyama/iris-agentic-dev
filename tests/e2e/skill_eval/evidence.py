@@ -274,6 +274,11 @@ def _criteria(result, eligible, per_task):
     return out
 
 
+def _models(lines):
+    """The distinct (model, effort) pairs in a set of lines. Lines from before 135 name none."""
+    return {(line.get("model"), line.get("effort")) for line in lines}
+
+
 def _ineligible(result, lines):
     """Why this run gets no verdict, or None."""
     stamped = [
@@ -289,6 +294,8 @@ def _ineligible(result, lines):
     }
     if len(builds) > 1:
         return "the run's sessions name more than one binary or commit"
+    if len(_models(stamped)) > 1:
+        return "the run's sessions name more than one model or effort"
     if any(line["build"].get("binary_stale") for line in stamped):
         return "the run used a binary older than the source"
     if any(line["build"].get("dirty") for line in stamped):
@@ -383,6 +390,10 @@ def evaluate_skill(runs, skill, heldout=None) -> dict:
     if len(singles) == 1:
         out["verdict"] = first["verdict"]
         out["kinds"] = first["kinds"]
+        return out
+
+    if len(_models([line for lines in runs for line in lines])) > 1:
+        out["verdict"] = "no verdict (the runs name more than one model or effort, so one cannot replicate the other)"
         return out
 
     later = singles[1:]
@@ -516,6 +527,9 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
             "ledger_ids": [e["id"] for e in mine],
             "spend_usd": round(sum(e.get("cost_usd") or 0.0 for e in mine), 4),
             "builds": builds,
+            "models": sorted(
+                {f"{m} {e or 'default effort'}" for lines in runs for m, e in _models(lines) if m}
+            ),
             "train_runs": sum(1 for e in mine if e.get("purpose") == "train"),
             "heldout_tasks": sorted(heldout.get(skill, ())),
         }
@@ -534,11 +548,16 @@ def _ci(ci, fmt="{:+.2f}"):
     return f"[{fmt.format(ci[0])}, {fmt.format(ci[1])}]"
 
 
+def _models_text(row: dict) -> str:
+    return ", ".join(row.get("models", [])) or "not recorded (sessions before 135 carry none)"
+
+
 def render_row(skill: str, row: dict) -> str:
     if not row.get("run_results") and "pairs" not in row:
         held = row.get("heldout_tasks", [])
         return (
             f"{skill}\n  verdict   {row['verdict']}\n"
+            f"  model     {_models_text(row)}\n"
             f"  ledger    {', '.join(row.get('ledger_ids', [])) or 'none'}   spend "
             f"${row.get('spend_usd', 0):.2f}   train runs {row.get('train_runs', 0)}\n"
             f"  held out  {len(held)} task(s): {', '.join(held) or '-'}"
@@ -552,6 +571,7 @@ def render_row(skill: str, row: dict) -> str:
         f"{skill}",
         f"  verdict   {row['verdict']}"
         + (f"  ({', '.join(row['kinds'])})" if row.get("kinds") else ""),
+        f"  model     {_models_text(row)}",
         f"  ledger    {', '.join(row.get('ledger_ids', [])) or 'none'}   spend ${row.get('spend_usd', 0):.2f}   "
         f"train runs {row.get('train_runs', 0)}   build {builds}",
         f"  pairs     {first['pairs']}  b={first['b']} c={first['c']}  loaded "
@@ -600,7 +620,7 @@ def render_markdown(report: dict) -> str:
         builds = ", ".join(f"{v} at {c}" for v, c in row.get("builds", [])) or "no build recorded"
         out.append(
             f"\nLedger: {', '.join(row.get('ledger_ids', [])) or 'none'}. Spend ${row.get('spend_usd', 0):.2f}. "
-            f"Build: {builds}. Held-out tasks: {', '.join(row.get('heldout_tasks', [])) or 'none'}. "
+            f"Model: {_models_text(row)}. Build: {builds}. Held-out tasks: {', '.join(row.get('heldout_tasks', [])) or 'none'}. "
             f"Train runs: {row.get('train_runs', 0)}.\n"
         )
         for number, one in enumerate(runs, start=1):

@@ -634,6 +634,7 @@ def run_ladder(
     on_events=None,
     cap: float | None = None,
     spent: float = 0.0,
+    effort: str | None = None,
 ) -> list:
     """Every task in every arm, `repeats` times, one session at a time.
 
@@ -654,12 +655,12 @@ def run_ladder(
     from tests.e2e.skill_eval.cost_estimator import session_cost, session_tokens
     from tests.e2e.skill_eval.pilot import run_one
 
-    key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-    if not key:
-        raise LadderRefused(
-            "OPENAI_API_KEY is not set, so every session would fail to start and every arm would "
-            "score as an arm that failed every task"
-        )
+    from tests.e2e.skill_eval.models import MissingCredential, api_key_for
+
+    try:
+        key = openai_api_key or api_key_for(model, os.environ)
+    except MissingCredential as missing:
+        raise LadderRefused(str(missing)) from missing
     host = iris_host or os.environ.get("IRIS_HOST", "localhost")
     port = iris_web_port or os.environ.get("IRIS_WEB_PORT", "52780")
 
@@ -692,6 +693,7 @@ def run_ladder(
                     binary=binary,
                     driver=driver,
                     on_events=take_events,
+                    effort=effort,
                 )
                 stream = streams.pop() if streams else []
                 cost = session_cost(stream)
@@ -829,6 +831,11 @@ def parse_args(argv=None):
         help="index of the first repeat, to resume a repeated run without relabelling it",
     )
     parser.add_argument("--model", default=LADDER_MODEL)
+    parser.add_argument(
+        "--effort",
+        default=None,
+        help="reasoning effort for a Bedrock OpenAI model (low, medium, high); recorded on every line",
+    )
     parser.add_argument("--timeout", type=int, default=SESSION_TIMEOUT)
     parser.add_argument("--container", default="iris-dev-iris")
     parser.add_argument(
@@ -890,10 +897,19 @@ def parse_args(argv=None):
 
 
 def session_line(
-    run: dict, *, side: str, build: dict | None, fingerprints: dict | None = None
+    run: dict,
+    *,
+    side: str,
+    build: dict | None,
+    fingerprints: dict | None = None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> dict:
     """What one finished session writes to the incremental file."""
     line = {**run, "side": side}
+    if model:
+        line["model"] = model
+        line["effort"] = effort
     if build:
         line["build"] = build
     fingerprint = (fingerprints or {}).get(run.get("task_id"))
@@ -1014,6 +1030,8 @@ def _main(argv=None) -> int:
                         side=args.side,
                         build=build,
                         fingerprints=fingerprints,
+                        model=args.model,
+                        effort=args.effort,
                     )
                 )
                 + "\n"
@@ -1046,6 +1064,7 @@ def _main(argv=None) -> int:
             on_events=transcript_writer(transcripts),
             cap=args.cap,
             spent=args.spent,
+            effort=args.effort,
         )
     except LadderAborted as aborted:
         # No report. A report over a run that stopped early would print a lift whose denominator is an
