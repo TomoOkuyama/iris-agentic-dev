@@ -1,0 +1,117 @@
+id: SKILL-29
+prompt: |
+  Bench.Batch.Run(pFail) in the BENCHMARK namespace writes two nodes, ^Bench.Batch("a") and then
+  ^Bench.Batch("b"), as one unit of work. When pFail is 1 the second step fails, and Run must then
+  return the error %Status. Make the unit all-or-nothing: after a failure neither node may remain, and
+  after a success both do. Run is also called from code that already has a transaction open, and in
+  that case the caller's transaction and everything the caller wrote earlier must still be there when
+  Run returns. Reset(), Caller() and Alone() are the test hooks and you should not change them. Leave
+  the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-guardrails
+fixtures:
+  - name: Bench.Batch
+    content: |
+      Class Bench.Batch Extends %RegisteredObject
+      {
+
+      ClassMethod Run(pFail As %Boolean = 0) As %Status
+      {
+          Set ^Bench.Batch("a") = 1
+          If pFail {
+              Quit $$$ERROR($$$GeneralError, "step b failed")
+          }
+          Set ^Bench.Batch("b") = 1
+          Quit $$$OK
+      }
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench.Batch
+      }
+
+      /// Run inside a caller transaction. Returns (failed, level, pre, a, b) as Run left them.
+      ClassMethod Caller(pFail As %Boolean) As %List
+      {
+          Do ..Reset()
+          TSTART
+          Set ^Bench.Batch("pre") = 1
+          Set tSC = ..Run(pFail)
+          Set tResult = $ListBuild($$$ISERR(tSC), $TLevel, $Data(^Bench.Batch("pre")), $Data(^Bench.Batch("a")), $Data(^Bench.Batch("b")))
+          While $TLevel > 0 {
+              TROLLBACK
+          }
+          Quit tResult
+      }
+
+      /// Run with no transaction open. Returns (failed, level, a, b).
+      ClassMethod Alone(pFail As %Boolean) As %List
+      {
+          Do ..Reset()
+          Set tSC = ..Run(pFail)
+          Quit $ListBuild($$$ISERR(tSC), $TLevel, $Data(^Bench.Batch("a")), $Data(^Bench.Batch("b")))
+      }
+
+      }
+check: |
+  try { set r1=$listtostring(##class(Bench.Batch).Caller(1)) set r2=$listtostring(##class(Bench.Batch).Caller(0)) set r3=$listtostring(##class(Bench.Batch).Alone(1)) set r4=$listtostring(##class(Bench.Batch).Alone(0)) set ok=((r1="1,1,1,0,0")&&(r2="0,1,1,1,1")&&(r3="1,0,0,0")&&(r4="0,0,1,1")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench.Batch
+    content: |
+      Class Bench.Batch Extends %RegisteredObject
+      {
+
+      ClassMethod Run(pFail As %Boolean = 0) As %Status
+      {
+          Set tEntry = $TLevel
+          Set tSC = $$$OK
+          TSTART
+          Try {
+              Set ^Bench.Batch("a") = 1
+              If pFail {
+                  Set tSC = $$$ERROR($$$GeneralError, "step b failed")
+              } Else {
+                  Set ^Bench.Batch("b") = 1
+              }
+          } Catch tEx {
+              Set tSC = tEx.AsStatus()
+          }
+          If $$$ISERR(tSC) {
+              TROLLBACK:$TLevel>tEntry 1
+          } Else {
+              TCOMMIT
+          }
+          Quit tSC
+      }
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench.Batch
+      }
+
+      /// Run inside a caller transaction. Returns (failed, level, pre, a, b) as Run left them.
+      ClassMethod Caller(pFail As %Boolean) As %List
+      {
+          Do ..Reset()
+          TSTART
+          Set ^Bench.Batch("pre") = 1
+          Set tSC = ..Run(pFail)
+          Set tResult = $ListBuild($$$ISERR(tSC), $TLevel, $Data(^Bench.Batch("pre")), $Data(^Bench.Batch("a")), $Data(^Bench.Batch("b")))
+          While $TLevel > 0 {
+              TROLLBACK
+          }
+          Quit tResult
+      }
+
+      /// Run with no transaction open. Returns (failed, level, a, b).
+      ClassMethod Alone(pFail As %Boolean) As %List
+      {
+          Do ..Reset()
+          Set tSC = ..Run(pFail)
+          Quit $ListBuild($$$ISERR(tSC), $TLevel, $Data(^Bench.Batch("a")), $Data(^Bench.Batch("b")))
+      }
+
+      }
+tags: [transactions, nesting]

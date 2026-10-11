@@ -1,0 +1,46 @@
+id: SKILL-27
+prompt: |
+  Bench.Admin.EnsureUser(pName, pRoles, pPassword) in the BENCHMARK namespace is a stub. Make it
+  ensure that an IRIS user named pName exists and holds exactly the roles in pRoles (a comma-separated
+  list). When the user does not exist, create it with the password pPassword. When it already exists,
+  set its roles to pRoles and leave the password as it is. Calling it twice with the same arguments is
+  fine. It returns a %Status. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-guardrails
+fixtures:
+  - name: Bench.Admin
+    content: |
+      Class Bench.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod EnsureUser(pName As %String, pRoles As %String, pPassword As %String) As %Status
+      {
+          Quit $$$OK
+      }
+
+      }
+check: |
+  try { new $namespace set s1=##class(Bench.Admin).EnsureUser("Bench135U","%Operator","Tmp-pw-135") set s2=##class(Bench.Admin).EnsureUser("Bench135U","%Operator","Tmp-pw-135") set s3=##class(Bench.Admin).EnsureUser("Bench135U","%Developer","Tmp-pw-135") set $namespace="%SYS" set ex=##class(Security.Users).Exists("Bench135U") set gs=##class(Security.Users).Get("Bench135U",.p) set ok=($system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&$system.Status.IsOK(s3)&&ex&&($get(p("Roles"))="%Developer")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+teardown: |
+  new $namespace set $namespace="%SYS" if ##class(Security.Users).Exists("Bench135U") { set sc=##class(Security.Users).Delete("Bench135U") }
+solution:
+  - name: Bench.Admin
+    content: |
+      Class Bench.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod EnsureUser(pName As %String, pRoles As %String, pPassword As %String) As %Status
+      {
+          New $NAMESPACE
+          Set $NAMESPACE = "%SYS"
+          If ##class(Security.Users).Exists(pName) {
+              Set tProps("Roles") = pRoles
+              Quit ##class(Security.Users).Modify(pName, .tProps)
+          }
+          Quit ##class(Security.Users).Create(pName, pRoles, pPassword)
+      }
+
+      }
+tags: [security, admin-api, sql-writes-fail]
