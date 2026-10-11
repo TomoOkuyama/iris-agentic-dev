@@ -687,3 +687,58 @@ def test_the_report_row_names_the_model():
     row = evaluate(run_lines(even))
     text = evidence.render_row(SKILL, {**row, "ledger_ids": [], "spend_usd": 0, "builds": [], "train_runs": 0, "models": ["m high"]})
     assert "m high" in text
+
+
+# --- two studies on two models are reported side by side, never pooled ---------------------------------
+
+
+def _with_model(lines, model, effort):
+    return [{**line, "model": model, "effort": effort} for line in lines]
+
+
+def test_runs_on_different_models_get_separate_rows(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    old = write_run(tmp_path, "ladder-1", _with_model(run_lines(only_skill_passes(4)), "openai/gpt-4.1", None))
+    new = write_run(tmp_path, "ladder-2", _with_model(run_lines(even), "bedrock-oai/luna", "high"))
+    events = [event(1, old, criteria_sha256=sha), event(2, new, criteria_sha256=sha)]
+    report = evidence.skills_report(
+        events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
+    )
+    rows = report["skills"]
+    assert len(rows) == 2
+    old_row = next(r for k, r in rows.items() if "gpt-4.1" in k)
+    new_row = next(r for k, r in rows.items() if "luna" in k)
+    assert old_row["verdict"] == "first run qualifies, awaiting replication"
+    assert new_row["verdict"] == "not net positive"
+    assert old_row["ledger_ids"] == ["IMP-001"] and new_row["ledger_ids"] == ["IMP-002"]
+
+
+def test_a_single_model_keeps_the_plain_skill_key(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    run = write_run(tmp_path, "ladder-1", _with_model(run_lines(even), "bedrock-oai/luna", "high"))
+    report = evidence.skills_report(
+        [event(1, run, criteria_sha256=sha)],
+        criteria_path=str(criteria),
+        heldout={SKILL: set(TASKS)},
+        task_skill={t: SKILL for t in TASKS},
+    )
+    assert list(report["skills"]) == [SKILL]
+
+
+def test_a_replication_on_the_same_model_pools_within_that_model(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    a = write_run(tmp_path, "ladder-1", _with_model(run_lines(only_skill_passes(4)), "bedrock-oai/luna", "high"))
+    b = write_run(tmp_path, "ladder-2", _with_model(run_lines(only_skill_passes(4)), "bedrock-oai/luna", "high"))
+    report = evidence.skills_report(
+        [event(1, a, criteria_sha256=sha), event(2, b, criteria_sha256=sha)],
+        criteria_path=str(criteria),
+        heldout={SKILL: set(TASKS)},
+        task_skill={t: SKILL for t in TASKS},
+    )
+    assert report["skills"][SKILL]["verdict"] == "net positive"

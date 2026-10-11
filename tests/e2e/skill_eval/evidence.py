@@ -481,62 +481,90 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
         mine = sorted(
             (e for e in measures if _subject(e) == skill), key=lambda e: e["ts"]
         )
-        verdict_events = [e for e in mine if e.get("purpose") == "verdict"]
-        runs, prints, builds = [], [], []
-        # A run stopped by its cap and finished by a continuation is still one run: its continuation's
-        # sessions join the run it names, so the pairs and repeats are counted once.
-        by_id, order = {}, []
-        for e in verdict_events:
+        # A run stopped by its cap and finished by a continuation is still one run: its
+        # continuation's sessions join the run it names, so pairs and repeats are counted once.
+        groups, order = {}, []
+        for e in mine:
             target = e.get("continues")
-            if target and target in by_id:
-                by_id[target].append(e)
+            if target and target in groups:
+                groups[target].append(e)
             else:
-                by_id[e["id"]] = [e]
+                groups[e["id"]] = [e]
                 order.append(e["id"])
+        units = []
         for run_id in order:
             lines = []
-            for e in by_id[run_id]:
+            for e in groups[run_id]:
                 if not e["runs_file"]:
                     continue
                 # os.path.join keeps an absolute runs_file as it is.
                 path = os.path.join(root, e["runs_file"])
                 if os.path.exists(path):
                     lines += _read_lines(path)
-            runs.append(lines)
-            prints.append(_fingerprints(lines))
-            for line in lines:
-                b = line.get("build")
-                if b:
-                    pair = (b.get("binary_version"), (b.get("commit") or "")[:7])
-                    if pair not in builds:
-                        builds.append(pair)
-        verdict = evaluate_skill(runs, skill, heldout.get(skill))
-        changed = sorted(
-            task
-            for task in {t for p in prints for t in p}
-            if len({p[task] for p in prints if task in p}) > 1
-        )
-        if changed and not verdict["verdict"].startswith("no verdict"):
-            verdict = {
-                **verdict,
-                "verdict": f"no verdict (task file changed between runs: {', '.join(changed)})",
-            }
-        row = {
-            **{k: v for k, v in verdict.items() if k != "runs"},
-            "run_results": verdict.get("runs", []),
-            "ledger_ids": [e["id"] for e in mine],
-            "spend_usd": round(sum(e.get("cost_usd") or 0.0 for e in mine), 4),
-            "builds": builds,
-            "models": sorted(
-                {f"{m} {e or 'default effort'}" for lines in runs for m, e in _models(lines) if m}
-            ),
-            "train_runs": sum(1 for e in mine if e.get("purpose") == "train"),
-            "heldout_tasks": sorted(heldout.get(skill, ())),
-        }
-        if report["refused"]:
-            row["verdict"] = "refused: criteria.md changed"
-        report["skills"][skill] = row
+            units.append((groups[run_id], lines))
+        # Runs on different models (or efforts) are different studies: reported side by side,
+        # never pooled and never one replicating the other.
+        labels = [_model_label(lines) for _, lines in units]
+        for label in dict.fromkeys(labels) or [None]:
+            mine_here = [u for u, l in zip(units, labels) if l == label]
+            key = skill if len(set(labels)) <= 1 else f"{skill} @ {label}"
+            report["skills"][key] = _skill_row(
+                skill,
+                heldout,
+                [e for events_, _ in mine_here for e in events_],
+                [u for u in mine_here if u[0][0].get("purpose") == "verdict"],
+                bool(report["refused"]),
+            )
     return report
+
+
+def _model_label(lines) -> str:
+    models = {(m, e) for m, e in _models(lines)}
+    if len(models) != 1:
+        return "mixed models" if models else "no sessions"
+    model, effort = next(iter(models))
+    if model is None:
+        # Sessions from before the model was written on the line all ran the ladder's old default.
+        return "openai/gpt-4.1 (the old default; not written on these lines)"
+    return f"{model} {effort or 'default effort'}"
+
+
+def _skill_row(skill, heldout, events, verdict_units, refused) -> dict:
+    runs = [lines for _, lines in verdict_units]
+    prints = [_fingerprints(lines) for lines in runs]
+    builds = []
+    for lines in runs:
+        for line in lines:
+            b = line.get("build")
+            pair = (b.get("binary_version"), (b.get("commit") or "")[:7]) if b else None
+            if pair and pair not in builds:
+                builds.append(pair)
+    verdict = evaluate_skill(runs, skill, heldout.get(skill))
+    changed = sorted(
+        task
+        for task in {t for p in prints for t in p}
+        if len({p[task] for p in prints if task in p}) > 1
+    )
+    if changed and not verdict["verdict"].startswith("no verdict"):
+        verdict = {
+            **verdict,
+            "verdict": f"no verdict (task file changed between runs: {', '.join(changed)})",
+        }
+    row = {
+        **{k: v for k, v in verdict.items() if k != "runs"},
+        "run_results": verdict.get("runs", []),
+        "ledger_ids": [e["id"] for e in events],
+        "spend_usd": round(sum(e.get("cost_usd") or 0.0 for e in events), 4),
+        "builds": builds,
+        "models": sorted(
+            {f"{m} {e or 'default effort'}" for lines in runs for m, e in _models(lines) if m}
+        ),
+        "train_runs": sum(1 for e in events if e.get("purpose") == "train"),
+        "heldout_tasks": sorted(heldout.get(skill, ())),
+    }
+    if refused:
+        row["verdict"] = "refused: criteria.md changed"
+    return row
 
 
 # --- rendering -------------------------------------------------------------------------------------------

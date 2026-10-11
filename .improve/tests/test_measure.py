@@ -176,7 +176,7 @@ def test_an_unknown_key_in_the_new_tables_is_an_error(tmp_path):
 def test_this_repos_adapter_loads_with_the_135_budget():
     cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
     assert cfg.per_week_usd >= 300.0, "the weekly guard must not be lower than the 135 budget"
-    assert cfg.total_usd == 300.0
+    assert cfg.total_usd == 62.0, "300 less the 237.69 the gpt-4.1 study spent, rounded down"
     assert cfg.per_subject_usd == 60.0
     assert cfg.per_try_usd == 5.0
     assert cfg.checkpoint_usd == 50.0

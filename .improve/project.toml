@@ -37,14 +37,15 @@ probe = ["docker", "ps", "--filter", "name=^/{name}$", "--format", "{{.Names}}"]
 [budget]
 per_try_usd = 5
 # 135 raised the weekly guard from 60 to the programme total, so it no longer stops a run the
-# programme budget allows. The programme limits below are the real bound: 300 in all, 60 per skill,
-# 40 per measurement run, a stop at every 50 spent. Spend before `since` is not counted against them.
+# programme budget allows. The programme limits below are the real bound. The first study (gpt-4.1,
+# 2026-10-11 to 2026-10-11T10:45Z) spent 237.69 of the 300; `since` starts the Bedrock study after it,
+# with the 62.31 that was left, 60 per skill, 40 per run and a stop at every 50 spent.
 per_week_usd = 300
-total_usd = 300
+total_usd = 62
 per_subject_usd = 60
 per_measure_usd = 40
 checkpoint_usd = 50
-since = "2026-10-11T00:00:00Z"
+since = "2026-10-11T10:45:00Z"
 
 [evidence]
 # The sha256 of this file goes on every run event; the verdict refuses a changed one.
