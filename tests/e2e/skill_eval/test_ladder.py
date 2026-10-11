@@ -1000,6 +1000,25 @@ def test_the_cli_web_port_defaults_to_none_so_the_env_then_52780_decide():
     assert ladder.parse_args(["--web-port", "52781"]).web_port == "52781"
 
 
+FAKE_STAMP = {
+    "binary": "/x/iris-agentic-dev",
+    "binary_sha256": "0" * 64,
+    "binary_version": "1.5.0",
+    "commit": "a" * 40,
+    "dirty": False,
+    "binary_stale": False,
+    "newer_source": [],
+}
+
+
+@pytest.fixture(autouse=True)
+def current_build(monkeypatch):
+    """A live run needs a real, current binary; these tests drive `_main` with the sessions stubbed."""
+    from tests.e2e.skill_eval import build_stamp
+
+    monkeypatch.setattr(build_stamp, "build_stamp", lambda binary, **kw: FAKE_STAMP)
+
+
 def _cli(monkeypatch, tmp_path, argv, tasks=AIHUB_TASKS):
     """`_main` with the corpus, the split and the sessions stubbed. Returns the exit code, what
     `run_ladder` was called with, and the records written."""
@@ -1213,3 +1232,22 @@ def test_a_skill_the_pack_does_not_ship_is_refused_on_the_tools_ladder(capsys):
     )
     assert code == 2
     assert "no-such-skill" in capsys.readouterr().out
+
+
+def test_every_incremental_record_carries_the_build_stamp(monkeypatch, tmp_path):
+    code, _, records = _cli(monkeypatch, tmp_path, [])
+    assert code == 0
+    assert records and all(r["build"] == FAKE_STAMP for r in records)
+
+
+def test_a_stale_binary_stops_the_run_before_any_session(monkeypatch, tmp_path):
+    from tests.e2e.skill_eval import build_stamp
+
+    monkeypatch.setattr(
+        build_stamp,
+        "build_stamp",
+        lambda binary, **kw: {**FAKE_STAMP, "binary_stale": True, "newer_source": ["crates/a.rs"]},
+    )
+    code, seen, records = _cli(monkeypatch, tmp_path, [])
+    assert code == 2
+    assert "tasks" not in seen and records == []

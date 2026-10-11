@@ -873,6 +873,12 @@ def parse_args(argv=None):
         default=None,
         help="stop once --spent plus each session's measured cost reaches this many dollars",
     )
+    parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="refuse to start when tracked files are modified (a verdict run: the commit in the "
+        "record must describe what ran)",
+    )
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
     if args.ladder == "skill" and not args.skill:
@@ -881,6 +887,11 @@ def parse_args(argv=None):
             "publishes the result as that skill's own"
         )
     return args
+
+
+def session_line(run: dict, *, side: str, build: dict | None) -> dict:
+    """What one finished session writes to the incremental file."""
+    return {**run, "side": side, **({"build": build} if build else {})}
 
 
 def _main(argv=None) -> int:
@@ -955,6 +966,23 @@ def _main(argv=None) -> int:
             print(f"  {task.id}")
         return 0
 
+    # Which build this is, taken once and copied onto every session line. A stale binary holds the old
+    # embedded skills, so it stops the run here and not in the report (135 T007).
+    from tests.e2e.skill_eval import build_stamp as build_stamp_module
+    from tests.e2e.skill_eval.provenance import resolve_binary
+
+    binary = os.environ.get("IAD_BINARY") or resolve_binary()
+    try:
+        build = build_stamp_module.build_stamp(binary)
+        build_stamp_module.assert_current(build, require_clean=args.require_clean)
+    except build_stamp_module.BuildRefused as refused:
+        print(f"refused: {refused}")
+        return 2
+    print(
+        f"build: {build['binary_version']} sha256 {build['binary_sha256'][:12]} commit "
+        f"{build['commit'][:7]}{' (modified tree)' if build['dirty'] else ''}"
+    )
+
     # Written as they land. A four-hour run that exists only in memory is a four-hour run that a
     # laptop sleeping loses whole.
     incremental = os.path.join(RESULTS_DIR, f"{run_id}.runs.jsonl")
@@ -962,7 +990,10 @@ def _main(argv=None) -> int:
 
     def record(run):
         with open(incremental, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps({**asdict(run), "side": args.side}) + "\n")
+            handle.write(
+                json.dumps(session_line(asdict(run), side=args.side, build=build))
+                + "\n"
+            )
 
     transcripts = os.path.join(RESULTS_DIR, f"{run_id}.transcripts")
 
@@ -985,7 +1016,7 @@ def _main(argv=None) -> int:
             timeout=args.timeout,
             iris_web_port=args.web_port,
             iris_container=args.container,
-            binary=os.environ.get("IAD_BINARY"),
+            binary=binary,
             driver=driver,
             on_run=record,
             on_events=transcript_writer(transcripts),
@@ -1016,6 +1047,7 @@ def _main(argv=None) -> int:
         transcripts=os.path.relpath(transcripts),
         side=args.side,
     )
+    written["build"] = build
     for record_ in written["comparisons"]:
         print(
             f"{record_['arm_a']} -> {record_['arm_b']}: b={record_['b']} c={record_['c']} "
