@@ -1,0 +1,43 @@
+id: SKILL-45
+prompt: |
+  Bench45.Ls.Dedupe(pList) in the BENCHMARK namespace is a stub. Make it return a %List holding the elements of the %List pList with repeats removed, keeping the first of each in its original order. Elements can be empty strings, and an empty string counts as a value like any other. A list with no elements comes back as an empty list. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-list-patterns
+fixtures:
+  - name: Bench45.Ls
+    content: |
+      Class Bench45.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod Dedupe(pList As %List) As %List
+      {
+          Quit pList
+      }
+
+      }
+check: |
+  try { set a=##class(Bench45.Ls).Dedupe($lb("x","","y","x","","z")) set b=##class(Bench45.Ls).Dedupe("") set ok=(($listlength(a)=4)&&($list(a,1)="x")&&($list(a,2)="")&&($list(a,3)="y")&&($list(a,4)="z")&&($listlength(b)=0)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench45.Ls
+    content: |
+      Class Bench45.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod Dedupe(pList As %List) As %List
+      {
+          Set tOut = ""
+          Set tPtr = 0
+          While $ListNext(pList, tPtr, tVal) {
+              Set tKey = "k" _ tVal
+              If '$Data(tSeen(tKey)) {
+                  Set tSeen(tKey) = ""
+                  Set tOut = tOut _ $ListBuild(tVal)
+              }
+          }
+          Quit tOut
+      }
+
+      }
+tags: [lists, dedupe, empty-element]
