@@ -36,7 +36,26 @@ probe = ["docker", "ps", "--filter", "name=^/{name}$", "--format", "{{.Names}}"]
 
 [budget]
 per_try_usd = 5
-per_week_usd = 60
+# 135 raised the weekly guard from 60 to the programme total, so it no longer stops a run the
+# programme budget allows. The programme limits below are the real bound: 300 in all, 60 per skill,
+# 40 per measurement run, a stop at every 50 spent. Spend before `since` is not counted against them.
+per_week_usd = 300
+total_usd = 300
+per_subject_usd = 60
+per_measure_usd = 40
+checkpoint_usd = 50
+since = "2026-10-11T00:00:00Z"
+
+[evidence]
+# The sha256 of this file goes on every run event; the verdict refuses a changed one.
+criteria = "specs/135-skill-evidence/criteria.md"
+
+[report]
+# `improve report` (`improve skills`): the per-skill verdict against the criteria. Free.
+command = ["python3", "-m", "tests.e2e.skill_eval.evidence"]
+
+[alias]
+skills = "report"
 
 # How to check that ONE task is itself sound (its check is false before, true after its reference
 # solution). {task} is replaced with the task id. Exit 0 means the task is sound.
@@ -179,3 +198,23 @@ timeout_seconds = 3600
 estimate_note = "The estimate has run 3 to 35 times low (the AI Hub holdout was estimated at $1.02 and cost $12.29). The cap is what bounds the spend."
 [try.env]
 PYTHONPATH = "."
+
+# A measurement run for one skill: its held-out tasks (verdict) or its train tasks (train), arms `tools`
+# and `tools+<skill>`, in one run id. `--require-clean` is added for a verdict run so the commit in the
+# record describes what ran. The binary must be the debug build of this checkout.
+[[measure]]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"

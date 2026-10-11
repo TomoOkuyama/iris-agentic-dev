@@ -108,6 +108,23 @@ class TryRule:
 
 
 @dataclass
+class MeasureRule:
+    """How to run the harness for one subject (135). `{subject}`, `{side}`, `{repeats}`, `{cap}` and
+    `{spent}` are filled in; the run file is found in the output with `runs_file_regex`."""
+
+    command: tuple
+    dry_run_flag: str
+    repeats: int
+    cost_regex: str
+    runs_file_regex: str
+    env: dict
+    timeout_seconds: int
+    estimate_note: str
+    # Extra arguments only for a run whose result may become a verdict (a held-out run).
+    verdict_args: tuple = ()
+
+
+@dataclass
 class RunResult:
     returncode: int
     stdout: str
@@ -133,6 +150,18 @@ class Config:
     probe: tuple = ()
     transcripts_glob: str = ""
     tries: tuple = ()
+    # 135: a programme budget on top of the weekly guard. Zero means no such limit.
+    total_usd: float = 0.0
+    per_subject_usd: float = 0.0
+    per_measure_usd: float = 0.0
+    checkpoint_usd: float = 0.0
+    # Spend before this timestamp is not counted against total_usd and per_subject_usd.
+    budget_since: str = ""
+    # A file whose sha256 is written on every run event, so a verdict can refuse a changed criterion.
+    criteria: str = ""
+    report_command: tuple = ()
+    aliases: dict = field(default_factory=dict)
+    measures: tuple = ()
 
 
 @dataclass
@@ -186,7 +215,21 @@ _ALLOWED = {
         "treated",
     },
     "environment": {"probe"},
-    "budget": {"per_try_usd", "per_week_usd"},
+    "budget": {
+        "per_try_usd",
+        "per_week_usd",
+        "total_usd",
+        "per_subject_usd",
+        "per_measure_usd",
+        "checkpoint_usd",
+        "since",
+    },
+    "evidence": {"criteria"},
+    "report": {"command"},
+}
+_ALLOWED_MEASURE = {
+    "command", "dry_run_flag", "repeats", "cost_regex", "runs_file_regex", "env", "timeout_seconds",
+    "estimate_note", "verdict_args",
 }
 _ALLOWED_RULE = {"tasks", "command", "container", "start_hint", "env"}
 _ALLOWED_TRY = {
@@ -216,7 +259,7 @@ def load_config(path: Path) -> Config:
     root = path.parent.parent
     for table, allowed in _ALLOWED.items():
         _strict(raw.get(table, {}), allowed, table)
-    for extra in set(raw) - set(_ALLOWED) - {"validate", "try"}:
+    for extra in set(raw) - set(_ALLOWED) - {"validate", "try", "measure", "alias"}:
         raise ConfigError(f"unknown table [{extra}]")
     project, holdout = raw.get("project", {}), raw.get("holdout", {})
     for key in ("name", "results_dir", "tasks_dir", "ledger"):
@@ -260,7 +303,25 @@ def load_config(path: Path) -> Config:
             judge_calls=bool(rule.get("judge_calls", False)),
             treated_exclude=tuple(rule.get("treated_exclude", [])),
         ))
+    measures = []
+    for index, rule in enumerate(raw.get("measure", [])):
+        _strict(rule, _ALLOWED_MEASURE, f"measure[{index}]")
+        for key in ("command", "runs_file_regex", "cost_regex"):
+            if key not in rule:
+                raise ConfigError(f"[[measure]] #{index + 1} needs {key!r}")
+        measures.append(MeasureRule(
+            command=tuple(rule["command"]),
+            dry_run_flag=rule.get("dry_run_flag", "--dry-run"),
+            repeats=int(rule.get("repeats", 3)),
+            cost_regex=rule["cost_regex"],
+            runs_file_regex=rule["runs_file_regex"],
+            env=dict(rule.get("env", {})),
+            timeout_seconds=int(rule.get("timeout_seconds", 14400)),
+            estimate_note=rule.get("estimate_note", ""),
+            verdict_args=tuple(rule.get("verdict_args", [])),
+        ))
     budget = raw.get("budget", {})
+    criteria = raw.get("evidence", {}).get("criteria", "")
     return Config(
         root=root,
         name=project["name"],
@@ -286,6 +347,15 @@ def load_config(path: Path) -> Config:
         probe=tuple(raw.get("environment", {}).get("probe", [])),
         transcripts_glob=holdout.get("transcripts_glob", ""),
         tries=tuple(tries),
+        total_usd=float(budget.get("total_usd", 0)),
+        per_subject_usd=float(budget.get("per_subject_usd", 0)),
+        per_measure_usd=float(budget.get("per_measure_usd", 0)),
+        checkpoint_usd=float(budget.get("checkpoint_usd", 0)),
+        budget_since=str(budget.get("since", "")),
+        criteria=str(root / criteria) if criteria else "",
+        report_command=tuple(raw.get("report", {}).get("command", [])),
+        aliases=dict(raw.get("alias", {})),
+        measures=tuple(measures),
     )
 
 
@@ -885,6 +955,18 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
     cap = args.cap if args.cap is not None else cfg.per_try_usd
     capped_by_week = cap > left
     cap = min(cap, left)
+    subject = getattr(args, "subject", None)
+    # 135: the programme budget bounds a try as well, overall and for the subject it is tagged with.
+    programme_left = []
+    if cfg.total_usd:
+        programme_left.append(cfg.total_usd - programme_spend(cfg, events))
+    if cfg.per_subject_usd and subject:
+        programme_left.append(cfg.per_subject_usd - programme_spend(cfg, events, subject))
+    if programme_left:
+        if min(programme_left) <= 0:
+            out("The programme budget is spent for this subject or overall. Nothing runs.")
+            return 5
+        cap = min(cap, min(programme_left))
     repeats = args.repeats or rule.repeats
     imp_id = held["id"] if held else next_imp_id(events)
     record_path = cfg.results_dir / f"try-{imp_id}.json"
@@ -943,6 +1025,8 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
         "commit": commit, "dirty": dirty,
         "record": os.path.relpath(record_path, cfg.root),
         **({"applied": applied} if applied is not None else {}),
+        **({"subject": subject} if subject else {}),
+        **({"criteria_sha256": _sha256_file(cfg.criteria)} if cfg.criteria and _sha256_file(cfg.criteria) else {}),
     })
 
     out("")
@@ -1015,6 +1099,136 @@ def run_try(args, cfg, nightly, validator, container_running, runner, confirm, w
     else:
         out("To undo the change, revert it; nothing else needs cleaning up.")
     return 0
+
+
+# ---- 135: the programme budget, `measure` and `report` -------------------------------------------
+
+
+def programme_spend(cfg: Config, events: list, subject: Optional[str] = None) -> float:
+    """Measured dollars in the ledger from `budget_since` on, for one subject or all of them."""
+    total = 0.0
+    for event in events:
+        if event.get("event") not in ("run", "measure"):
+            continue
+        if cfg.budget_since and str(event.get("ts", "")) < cfg.budget_since:
+            continue
+        if subject is not None and event.get("subject") != subject:
+            continue
+        total += float(event.get("cost_usd") or 0)
+    return total
+
+
+def _sha256_file(path: str) -> Optional[str]:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _checkpoint(cfg: Config, before: float, after: float) -> Optional[int]:
+    """The $N mark crossed between two programme totals, if any."""
+    if cfg.checkpoint_usd <= 0:
+        return None
+    mark = int(after // cfg.checkpoint_usd)
+    return int(mark * cfg.checkpoint_usd) if mark > int(before // cfg.checkpoint_usd) else None
+
+
+def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
+    if not cfg.measures:
+        out("The adapter has no [[measure]] rule, so improve does not know how to run a subject.")
+        return 2
+    rule = cfg.measures[0]
+    subject = args.subject
+    side = "holdout" if args.purpose == "verdict" else "train"
+    events = read_ledger(cfg)
+    spent_total = programme_spend(cfg, events)
+    spent_subject = programme_spend(cfg, events, subject)
+    limits = []
+    if cfg.total_usd:
+        limits.append(("overall", cfg.total_usd - spent_total))
+    if cfg.per_subject_usd:
+        limits.append((subject, cfg.per_subject_usd - spent_subject))
+    ask = args.cap if args.cap is not None else (cfg.per_measure_usd or cfg.per_try_usd)
+    cap = min([ask] + [left for _, left in limits])
+    if cap <= 0:
+        for name, left in limits:
+            if left <= 0:
+                out(f"The budget for {name} is spent ({_fmt(spent_subject if name == subject else spent_total)}). Nothing runs.")
+        return 5
+    repeats = args.repeats or rule.repeats
+
+    def fill(command):
+        values = {"subject": subject, "side": side, "repeats": str(repeats), "cap": str(float(cap)),
+                  "spent": "0.0"}
+        filled = [part.format(**values) if "{" in part else part for part in command]
+        return filled + (list(rule.verdict_args) if args.purpose == "verdict" else [])
+
+    env = {**os.environ, **rule.env}
+    imp_id = next_imp_id(events)
+    estimate = runner([*fill(rule.command), rule.dry_run_flag], env, 120, live=False)
+    out(f"{imp_id}: {args.purpose} run of {subject} on the {side} side, {repeats} repeats")
+    out("")
+    out(estimate.stdout.strip())
+    if rule.estimate_note:
+        out(rule.estimate_note)
+    out("")
+    for name, left in limits:
+        if name == subject:
+            out(f"{_fmt(left)} left for {subject} ({_fmt(cfg.per_subject_usd)} budget).")
+        else:
+            out(f"{_fmt(left)} left overall ({_fmt(cfg.total_usd)} budget).")
+    out(f"Spend cap of {_fmt(cap)}: no session starts once measured spend reaches it (the last one can overshoot).")
+    if not args.yes and not confirm(f"Run {subject} now? [y/N] "):
+        out("Not run. Nothing was spent and nothing was written.")
+        return 0
+
+    commit, dirty = git_state()
+    result = runner(fill(rule.command), env, rule.timeout_seconds, live=True)
+    costs = re.findall(rule.cost_regex, result.stdout)
+    cost = sum(float(c) for c in costs)
+    found = re.findall(rule.runs_file_regex, result.stdout)
+    runs_file = None
+    if found:
+        path = Path(found[-1])
+        runs_file = os.path.relpath(path if path.is_absolute() else cfg.root / path, cfg.root) \
+            if path.is_absolute() else found[-1]
+    aborted = result.returncode != 0 or runs_file is None
+    event = {
+        "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "id": imp_id, "event": "measure", "who": who,
+        "subject": subject, "side": side, "purpose": args.purpose, "runs_file": runs_file,
+        "cost_usd": round(cost, 4), "sessions": len(costs), "returncode": result.returncode,
+        "aborted": aborted, "cap": float(cap), "repeats": repeats, "commit": commit, "dirty": dirty,
+    }
+    sha = _sha256_file(cfg.criteria) if cfg.criteria else None
+    if sha:
+        event["criteria_sha256"] = sha
+    append_ledger(cfg, event)
+
+    new_total, new_subject = spent_total + cost, spent_subject + cost
+    out("")
+    out(f"{imp_id}: {_fmt(cost)} this run over {len(costs)} sessions"
+        + (" (the run did not finish)" if aborted else "") + ".")
+    out(f"Spend: {_fmt(new_subject)} of {_fmt(cfg.per_subject_usd)} for {subject}; "
+        f"{_fmt(new_total)} of {_fmt(cfg.total_usd)} overall.")
+    mark = _checkpoint(cfg, spent_total, new_total)
+    if mark is not None:
+        out(f"CHECKPOINT: the programme crossed ${mark}. Stop and report before the next run.")
+    if aborted:
+        out("Aborted runs are recorded with their spend; `improve report` gives no verdict from them alone.")
+        return 7
+    out("Next: improve report")
+    return 8 if mark is not None else 0
+
+
+def run_report(cfg, runner, out) -> int:
+    if not cfg.report_command:
+        out("The adapter has no [report] command, so improve does not know how to read a verdict.")
+        return 2
+    argv = [*cfg.report_command, "--ledger", str(cfg.ledger), "--criteria", cfg.criteria,
+            "--root", str(cfg.root)]
+    result = runner(argv, {**os.environ}, 600, live=False)
+    out(result.stdout.rstrip())
+    return result.returncode
 
 
 # ---- the defaults that shell out (injected in tests) --------------------------------------------
@@ -1137,6 +1351,13 @@ def _stream_runner(argv, env, timeout, live=False) -> RunResult:
     return RunResult(proc.returncode if proc.returncode is not None else 1, "".join(lines))
 
 
+def _aliases_from_adapter() -> dict:
+    try:
+        return dict(tomllib.loads(find_adapter().read_text()).get("alias", {}))
+    except (ConfigError, OSError, ValueError):
+        return {}
+
+
 def _ask(prompt: str) -> bool:
     if not sys.stdin.isatty():
         return False  # no terminal and no --yes: not a yes
@@ -1182,6 +1403,23 @@ def main(
     p_try.add_argument("--yes", action="store_true", help="skip the question (the estimate and cap are still shown)")
     p_try.add_argument("--cap", type=float, default=None, help="dollars; default is the adapter's per-try cap")
     p_try.add_argument("--repeats", type=int, default=None, help="repeats per arm; default is the adapter's")
+    p_try.add_argument("--subject", default=None, help="charge the spend to this subject's budget")
+    p_measure = sub.add_parser(
+        "measure", help="run the harness for one subject and record it in the ledger (spends)"
+    )
+    p_measure.add_argument("subject")
+    p_measure.add_argument("--purpose", choices=("verdict", "train"), default="verdict",
+                           help="verdict = the subject's held-out tasks; train = its train tasks")
+    p_measure.add_argument("--yes", action="store_true", help="skip the question (estimate and cap still shown)")
+    p_measure.add_argument("--cap", type=float, default=None)
+    p_measure.add_argument("--repeats", type=int, default=None)
+    sub.add_parser("report", help="the verdict per subject against the adapter's criteria (free)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # The adapter may give a verb another name (`[alias] <word> = "report"`), so a project can speak
+    # its own words while the engine stays generic. Read before argparse, from the adapter alone.
+    aliases = (config.aliases if config else _aliases_from_adapter())
+    if argv and argv[0] in aliases:
+        argv[0] = aliases[argv[0]]
     args = parser.parse_args(argv)
 
     try:
@@ -1198,6 +1436,12 @@ def main(
         status = build_status(cfg, now=now, nightly=nightly)
         out(status_json(status) if args.json else render_status(status))
         return 0
+    if args.verb in ("measure", "report"):
+        holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
+        if args.verb == "report":
+            return run_report(cfg, runner or _stream_runner, out)
+        return run_measure(args, cfg, runner or _stream_runner, confirm or _ask, holder,
+                           git_state or _make_git_state(cfg), out, now)
     if args.verb == "try":
         holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
         return run_try(args, cfg, nightly, validator, container_running, runner or _stream_runner,

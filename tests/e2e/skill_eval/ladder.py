@@ -978,6 +978,9 @@ def _main(argv=None) -> int:
     from tests.e2e.skill_eval.provenance import resolve_binary
 
     binary = os.environ.get("IAD_BINARY") or resolve_binary()
+    if binary:
+        # The sessions run in a temporary working directory, where a relative path means nothing.
+        binary = os.path.abspath(binary)
     try:
         build = build_stamp_module.build_stamp(binary)
         build_stamp_module.assert_current(build, require_clean=args.require_clean)

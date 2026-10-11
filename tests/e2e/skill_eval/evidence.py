@@ -519,6 +519,14 @@ def _ci(ci, fmt="{:+.2f}"):
 
 
 def render_row(skill: str, row: dict) -> str:
+    if not row.get("run_results") and "pairs" not in row:
+        held = row.get("heldout_tasks", [])
+        return (
+            f"{skill}\n  verdict   {row['verdict']}\n"
+            f"  ledger    {', '.join(row.get('ledger_ids', [])) or 'none'}   spend "
+            f"${row.get('spend_usd', 0):.2f}   train runs {row.get('train_runs', 0)}\n"
+            f"  held out  {len(held)} task(s): {', '.join(held) or '-'}"
+        )
     runs = row.get("run_results") or [row]
     first = runs[0]
     builds = (
@@ -562,3 +570,75 @@ def render(report: dict) -> str:
     return "\n\n".join(
         render_row(skill, row) for skill, row in report["skills"].items()
     )
+
+
+# --- the command ------------------------------------------------------------------------------------------
+
+READ_PATH = os.path.join(os.path.dirname(__file__), "..", "tasks", "skills", "read.toml")
+READ_PATH = os.path.normpath(READ_PATH)
+
+
+def load_read(path: str = READ_PATH) -> dict:
+    """Tasks whose transcripts or outcomes someone read to decide an edit, each with the reason.
+
+    A read task is train, whatever the split file says: it cannot give a held-out figure.
+    """
+    import tomllib
+
+    if not os.path.exists(path):
+        return {}
+    with open(path, "rb") as handle:
+        raw = tomllib.load(handle)
+    out = {}
+    for task, entry in raw.items():
+        reason = entry.get("reason") if isinstance(entry, dict) else None
+        if not str(reason or "").strip():
+            raise ValueError(f"{path}: {task} needs a reason; a bare entry cannot be audited")
+        out[task] = str(reason)
+    return out
+
+
+def heldout_by_skill(tasks, split, read) -> dict:
+    """Per skill, the tasks on the holdout side that nobody read."""
+    held = defaultdict(set)
+    for task in tasks:
+        if task.skill and task.id in split.holdout and task.id not in read:
+            held[task.skill].add(task.id)
+    return dict(held)
+
+
+def main(argv=None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Per-skill verdicts against criteria.md. Free.")
+    parser.add_argument("--ledger", required=True)
+    parser.add_argument("--criteria", required=True)
+    parser.add_argument("--root", default=".")
+    args = parser.parse_args(argv)
+
+    from tests.e2e.skill_eval import graded_task
+    from tests.e2e.skill_eval.split import default_split
+
+    events = []
+    if os.path.exists(args.ledger):
+        with open(args.ledger, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue
+    tasks = graded_task.skill_corpus()
+    held = heldout_by_skill(tasks, default_split(), set(load_read()))
+    report = skills_report(
+        events,
+        criteria_path=args.criteria,
+        heldout=held,
+        task_skill={t.id: t.skill for t in tasks},
+        root=args.root,
+    )
+    print(render(report))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

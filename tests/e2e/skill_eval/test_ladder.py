@@ -1251,3 +1251,11 @@ def test_a_stale_binary_stops_the_run_before_any_session(monkeypatch, tmp_path):
     code, seen, records = _cli(monkeypatch, tmp_path, [])
     assert code == 2
     assert "tasks" not in seen and records == []
+
+
+def test_a_relative_iad_binary_reaches_the_sessions_as_an_absolute_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("IAD_BINARY", "target/debug/iris-agentic-dev")
+    code, seen, _ = _cli(monkeypatch, tmp_path, [])
+    assert code == 0
+    assert os.path.isabs(seen["kwargs"]["binary"])
+    assert seen["kwargs"]["binary"].endswith("target/debug/iris-agentic-dev")

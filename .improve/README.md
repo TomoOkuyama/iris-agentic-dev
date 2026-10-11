@@ -121,4 +121,22 @@ Every run is an iteration with an id, `IMP-NNNN`, and leaves three lines in `led
   `Improve: IMP-NNNN`. The verdict line is what the claim points at (ADR 0003).
 - Commit `ledger.jsonl`. It is the project's record of what the loop did and spent.
 
+### Programme verbs (`measure`, `report`)
+
+A project with a pre-registered programme (135 here) adds three adapter tables:
+
+| Table         | Meaning                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `[evidence]`  | `criteria`: a file whose sha256 goes on every `run` and `measure` event.                        |
+| `[report]`    | `command`: what `improve report` runs (given `--ledger`, `--criteria`, `--root`). Free.         |
+| `[[measure]]` | How to run the harness for one subject. `{subject}`, `{side}`, `{repeats}`, `{cap}`, `{spent}`. |
+| `[alias]`     | A project word for an engine verb: `skills = "report"` makes `improve skills` run the report.   |
+
+`[budget]` gains `total_usd`, `per_subject_usd`, `per_measure_usd`, `checkpoint_usd` and `since`. A run's
+cap is the smallest of what was asked, what is left overall and what is left for its subject; spend
+before `since` does not count. `improve measure <subject> [--purpose verdict|train]` writes a `measure`
+event (run file, measured cost, commit, whether the tree was modified, criteria hash). Crossing a
+`checkpoint_usd` multiple prints `CHECKPOINT` and exits 8. `improve try --subject S` charges a try to the
+same budgets.
+
 The weekly holdout run is not built yet.

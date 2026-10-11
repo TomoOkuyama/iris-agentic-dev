@@ -1,0 +1,4 @@
+# Tasks whose transcripts or outcomes were read to decide an edit to a skill, a tool or a hint.
+# Each is a train task whatever it was called before. `improve skills` leaves them out of every
+# held-out figure, and `test_the_committed_read_tasks_are_all_on_the_train_side` keeps split.toml
+# honest. A skill that loses a held-out task here needs a fresh one (135 criteria.md, eligibility).

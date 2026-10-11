@@ -502,3 +502,63 @@ def test_render_names_the_binary_and_the_commit_and_every_interval():
     assert "1.5.0" in text and "ccccccc" in text
     assert "IMP-001" in text
     assert "95%" in text
+
+
+# --- held-out tasks: split side, minus every task someone read ----------------------------------------
+
+
+class _Task:
+    def __init__(self, id, skill):
+        self.id, self.skill = id, skill
+
+
+class _Split:
+    def __init__(self, holdout):
+        self.holdout = tuple(holdout)
+
+
+def test_heldout_is_the_holdout_side_minus_the_read_tasks_per_skill():
+    tasks = [_Task("SKILL-01", "a"), _Task("SKILL-02", "a"), _Task("SKILL-03", "b"), _Task("SKILL-04", "a")]
+    split = _Split(["SKILL-01", "SKILL-02", "SKILL-03"])  # SKILL-04 is train
+    held = evidence.heldout_by_skill(tasks, split, read={"SKILL-02"})
+    assert held == {"a": {"SKILL-01"}, "b": {"SKILL-03"}}
+
+
+def test_the_read_registry_names_each_task_with_a_reason(tmp_path):
+    path = tmp_path / "read.toml"
+    path.write_text('[SKILL-02]\nreason = "guardrails edit read it"\n\n[SKILL-03]\nreason = "same"\n')
+    assert evidence.load_read(str(path)) == {"SKILL-02": "guardrails edit read it", "SKILL-03": "same"}
+
+
+def test_a_read_entry_without_a_reason_is_refused(tmp_path):
+    path = tmp_path / "read.toml"
+    path.write_text("[SKILL-02]\n")
+    with pytest.raises(ValueError):
+        evidence.load_read(str(path))
+
+
+def test_a_missing_read_registry_is_empty(tmp_path):
+    assert evidence.load_read(str(tmp_path / "nope.toml")) == {}
+
+
+def test_the_committed_read_tasks_are_all_on_the_train_side():
+    """A task that was read to decide an edit is train. The split and the registry must agree."""
+    from tests.e2e.skill_eval import graded_task
+    from tests.e2e.skill_eval.split import default_split
+
+    read = evidence.load_read(evidence.READ_PATH)
+    train = set(default_split().train)
+    known = {task.id for task in graded_task.all_tasks()}
+    assert set(read) <= known, "a read entry names a task that is not in the corpus"
+    assert set(read) <= train, f"read but not on train: {sorted(set(read) - train)}"
+
+
+def test_main_prints_the_report_from_the_ledger(tmp_path, capsys):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text("")
+    code = evidence.main(["--ledger", str(ledger), "--criteria", str(criteria), "--root", str(tmp_path)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "no verdict" in out
