@@ -469,7 +469,10 @@ def _subject(event):
 
 def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") -> dict:
     """Per-skill rows from the ledger's `measure` events and the run files they name."""
-    measures = [e for e in events if e.get("event") == "measure"]
+    voided = {e["target"]: e.get("reason", "") for e in events if e.get("event") == "void"}
+    measures = [
+        e for e in events if e.get("event") == "measure" and e["id"] not in voided
+    ]
     report = {"refused": None, "skills": {}, "criteria_sha256": None}
     if not criteria_intact(criteria_path, measures):
         report["refused"] = (
@@ -515,6 +518,13 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
                 [e for events_, _ in mine_here for e in events_],
                 [u for u in mine_here if u[0][0].get("purpose") == "verdict"],
                 bool(report["refused"]),
+                [
+                    {"id": e["id"], "reason": voided[e["id"]]}
+                    for e in events
+                    if e.get("event") == "measure"
+                    and e["id"] in voided
+                    and _subject(e) == skill
+                ],
             )
     return report
 
@@ -530,7 +540,7 @@ def _model_label(lines) -> str:
     return f"{model} {effort or 'default effort'}"
 
 
-def _skill_row(skill, heldout, events, verdict_units, refused) -> dict:
+def _skill_row(skill, heldout, events, verdict_units, refused, voided_rows=()) -> dict:
     runs = [lines for _, lines in verdict_units]
     prints = [_fingerprints(lines) for lines in runs]
     builds = []
@@ -561,6 +571,7 @@ def _skill_row(skill, heldout, events, verdict_units, refused) -> dict:
             {f"{m} {e or 'default effort'}" for lines in runs for m, e in _models(lines) if m}
         ),
         "train_runs": sum(1 for e in events if e.get("purpose") == "train"),
+        "voided": voided_rows,
         "heldout_tasks": sorted(heldout.get(skill, ())),
     }
     if refused:

@@ -45,6 +45,7 @@ from dataclasses import asdict, dataclass, field
 
 from tests.e2e import billing
 from tests.e2e.skill_eval import graded_task
+from tests.e2e.skill_eval.models import localize_prompt
 from tests.e2e.skill_eval.arms import ARMS, Arm, installed_skill_names
 from tests.e2e.skill_eval.comparison import Comparison, pair_arms
 from tests.e2e.skill_eval.graded_task import CheckBroken, GradedTask
@@ -354,7 +355,9 @@ def run_one(
                 prompt = (
                     AUTONOMY_PREAMBLE
                     + (preload_preamble(arm.skill_names) if arm.preload else "")
-                    + task.prompt
+                    + localize_prompt(
+                        task.prompt, web_port=iris_web_port, container=iris_container
+                    )
                 )
                 events = driver.collect_events(
                     prompt,

@@ -564,3 +564,24 @@ def test_a_second_run_started_while_the_first_is_running_gets_the_next_id(world)
     go(["measure", "objectscript-tdd", "--yes"], world, runner=Peek())
     measures = [e for e in ledger(world) if e["event"] == "measure"]
     assert len({e["id"] for e in measures}) == 2
+
+
+# ---- voiding a run that turned out to be invalid ----------------------------------------------------------
+
+
+def test_void_appends_an_event_naming_the_run_and_the_reason(world):
+    world.ledger.write_text(json.dumps(spend_event("2026-10-11T08:00:00Z", 1.0, subject="iris-sql")) + "\n")
+    code, text, _, _ = go(["void", "IMP-0099", "--reason", "sessions edited another container"], world)
+    assert code == 0
+    event = ledger(world)[-1]
+    assert event["event"] == "void" and event["target"] == "IMP-0099"
+    assert event["reason"] == "sessions edited another container"
+
+
+def test_void_needs_a_reason_and_a_known_id(world):
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit):
+        go(["void", "IMP-0099"], world)
+    code, text, _, _ = go(["void", "IMP-0404", "--reason", "x"], world)
+    assert code == 2 and "IMP-0404" in text

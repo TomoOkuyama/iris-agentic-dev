@@ -140,3 +140,63 @@ def test_every_session_line_names_the_model_and_effort():
 
     line = ladder.session_line({"task_id": "T"}, side="holdout", build=None, model=LUNA, effort="high")
     assert (line["model"], line["effort"]) == (LUNA, "high")
+
+
+# --- running beside other runs: the prompt and the iad server must point at this run's container ----------
+
+
+def test_the_prompt_names_this_runs_container_and_port():
+    from tests.e2e.skill_eval.models import localize_prompt
+
+    text = (
+        "IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.\n"
+        "The instance runs in the Docker container iris-dev-iris."
+    )
+    out = localize_prompt(text, web_port="52891", container="iad135-w1")
+    assert "web port 52891" in out and "container iad135-w1" in out
+    assert "52780" not in out and "iris-dev-iris" not in out
+
+
+def test_the_default_container_leaves_the_prompt_byte_for_byte_alone():
+    from tests.e2e.skill_eval.models import localize_prompt
+
+    text = "web port 52780 ... iris-dev-iris ... and a 52781 elsewhere"
+    assert localize_prompt(text, web_port="52780", container="iris-dev-iris") == text
+
+
+def test_a_prompt_that_names_neither_is_unchanged():
+    from tests.e2e.skill_eval.models import localize_prompt
+
+    assert localize_prompt("do the thing", web_port="52891", container="w1") == "do the thing"
+
+
+def test_the_session_prompt_is_localized(monkeypatch):
+    from tests.e2e.skill_eval import graded_task, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_pilot import RecordingDriver, fake_task
+
+    task = fake_task("FAKE-01")
+    task = type(task)(**{**task.__dict__, "prompt": "web port 52780 in iris-dev-iris"})
+    for name in ("validate_live", "reset_documents", "apply_documents", "run_teardown"):
+        monkeypatch.setattr(graded_task, name, lambda *a, **k: None)
+    monkeypatch.setattr(graded_task, "list_classes", lambda *a, **k: set())
+    monkeypatch.setattr(graded_task, "run_check", lambda t: True)
+    driver = RecordingDriver()
+    pilot.run_one(
+        task, TOOLS, openai_api_key="k", skill_names=(), iris_host="localhost",
+        iris_web_port="52891", iris_container="iad135-w1", driver=driver,
+    )
+    prompt = driver.collected[0][0]
+    assert "web port 52891" in prompt and "iad135-w1" in prompt and "52780" not in prompt
+
+
+def test_the_iad_server_gets_an_empty_config_home_so_it_sees_one_server():
+    from tests.e2e.isolated_env import IsolatedEnv
+
+    with IsolatedEnv(openai_api_key="k") as env:
+        env.with_mcp("localhost", "52891", "iad135-w1", binary="/bin/true")
+        mcp = json.loads(env.config_content)["mcp"]["iris-agentic-dev"]["environment"]
+        assert mcp["HOME"].startswith(env._tmpdir) and mcp["XDG_CONFIG_HOME"].startswith(env._tmpdir)
+        import os
+
+        assert os.path.isdir(mcp["HOME"])

@@ -100,3 +100,21 @@ def provider_block(model: str, api_key: str, effort: str | None = None) -> dict:
             }
         }
     raise UnknownModel(f"{model!r} names a provider this harness cannot reach")
+
+
+DEFAULT_PORT = "52780"
+DEFAULT_CONTAINER = "iris-dev-iris"
+
+
+def localize_prompt(prompt: str, *, web_port: str, container: str) -> str:
+    """Point a task's prompt at the container this run uses.
+
+    The tasks name the main dev container and its port. A run beside others uses its own container, and
+    an agent that follows the prompt would edit the main one and be graded against the other. Left
+    alone when the run uses the defaults, so existing runs read byte for byte as before.
+    """
+    if str(web_port) != DEFAULT_PORT:
+        prompt = prompt.replace(f"web port {DEFAULT_PORT}", f"web port {web_port}")
+    if container != DEFAULT_CONTAINER:
+        prompt = prompt.replace(DEFAULT_CONTAINER, container)
+    return prompt

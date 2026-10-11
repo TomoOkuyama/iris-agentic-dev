@@ -1236,6 +1236,19 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
     return 8 if mark is not None else 0
 
 
+def run_void(args, cfg, who, now, out) -> int:
+    """Mark a run invalid. The ledger is append-only: the run stays on record, with the reason, and the
+    report leaves it out."""
+    events = read_ledger(cfg)
+    if not any(e.get("id") == args.target for e in events):
+        out(f"No run {args.target} in the ledger.")
+        return 2
+    append_ledger(cfg, {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "id": next_imp_id(events),
+                        "event": "void", "who": who, "target": args.target, "reason": args.reason})
+    out(f"{args.target} voided: {args.reason}")
+    return 0
+
+
 def run_report(cfg, runner, out) -> int:
     if not cfg.report_command:
         out("The adapter has no [report] command, so improve does not know how to read a verdict.")
@@ -1435,6 +1448,9 @@ def main(
                            help="run the harness command from this directory (an earlier checkout)")
     p_measure.add_argument("--arg", action="append", default=None,
                            help="an extra argument for the harness command (repeatable, use --arg=--flag)")
+    p_void = sub.add_parser("void", help="mark a run invalid, with the reason; the report leaves it out")
+    p_void.add_argument("target", metavar="IMP-NNNN")
+    p_void.add_argument("--reason", required=True)
     sub.add_parser("report", help="the verdict per subject against the adapter's criteria (free)")
     argv = list(sys.argv[1:] if argv is None else argv)
     # The adapter may give a verb another name (`[alias] <word> = "report"`), so a project can speak
@@ -1461,6 +1477,8 @@ def main(
     if args.verb == "report":
         return run_report(cfg, runner or _stream_runner, out)
     holder = who or os.environ.get("IMPROVE_WHO") or os.environ.get("USER") or "unknown"
+    if args.verb == "void":
+        return run_void(args, cfg, holder, now, out)
     if args.verb == "measure":
         return run_measure(args, cfg, runner or _stream_runner, confirm or _ask, holder,
                            git_state or _make_git_state(cfg), out, now)

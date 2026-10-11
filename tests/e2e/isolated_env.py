@@ -83,6 +83,11 @@ class IsolatedEnv:
                 "no iris-agentic-dev binary resolved, so this session would run with no iad "
                 f"tools and score as though the skill failed. Searched — {searched}"
             )
+        # The server reads its registered servers, Server Manager entries and keychain from the home
+        # directory. Given an empty one it knows only the connection named here, so an agent cannot
+        # pick the operator's other instances by name.
+        home = os.path.join(self._tmpdir, "iad_home")
+        os.makedirs(os.path.join(home, ".config"), exist_ok=True)
         self._mcp_config = {
             "iris-agentic-dev": {
                 "type": "local",
@@ -95,6 +100,8 @@ class IsolatedEnv:
                     "IRIS_NAMESPACE": iris_namespace,
                     "IRIS_USERNAME": iris_username,
                     "IRIS_PASSWORD": iris_password,
+                    "HOME": home,
+                    "XDG_CONFIG_HOME": os.path.join(home, ".config"),
                     **({} if toolset is None else {"IRIS_TOOLSET": toolset}),
                 },
             }

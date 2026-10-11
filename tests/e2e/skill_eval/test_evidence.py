@@ -757,3 +757,23 @@ def test_a_run_that_wrote_no_sessions_does_not_make_a_row_of_its_own(tmp_path):
         events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
     )
     assert list(report["skills"]) == [SKILL]
+
+
+def test_a_voided_run_is_left_out_of_every_figure(tmp_path):
+    criteria = tmp_path / "criteria.md"
+    criteria.write_text("c\n")
+    sha = evidence.sha256_file(str(criteria))
+    bad = write_run(tmp_path, "ladder-1", run_lines(only_skill_passes(9)))
+    good = write_run(tmp_path, "ladder-2", run_lines(even))
+    events = [
+        event(1, bad, criteria_sha256=sha, cost_usd=2.0),
+        {"ts": "2026-10-11T03:00:00Z", "id": "IMP-009", "event": "void", "target": "IMP-001", "reason": "wrong container"},
+        event(2, good, criteria_sha256=sha, cost_usd=3.0),
+    ]
+    report = evidence.skills_report(
+        events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
+    )
+    row = report["skills"][SKILL]
+    assert row["verdict"] == "not net positive"
+    assert row["ledger_ids"] == ["IMP-002"]
+    assert row["voided"] == [{"id": "IMP-001", "reason": "wrong container"}]
