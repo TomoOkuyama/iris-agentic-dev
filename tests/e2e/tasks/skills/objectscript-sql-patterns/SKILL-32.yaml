@@ -1,0 +1,66 @@
+id: SKILL-32
+prompt: |
+  Bench32.Todo.Add(pTitle) in the BENCHMARK namespace must insert a row into the persistent class
+  Bench32.Item with Title set to pTitle and Created set to the moment of the call, using a dynamic
+  SQL INSERT (%SQL.Statement), and return the new row's id. Return -1 if the insert does not run.
+  Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-sql-patterns
+fixtures:
+  - name: Bench32.Item
+    content: |
+      Class Bench32.Item Extends %Persistent
+      {
+
+      Property Title As %String;
+
+      Property Created As %TimeStamp;
+
+      }
+  - name: Bench32.Todo
+    content: |
+      Class Bench32.Todo Extends %RegisteredObject
+      {
+
+      ClassMethod Add(pTitle As %String) As %Integer
+      {
+          Quit -1
+      }
+
+      }
+check: |
+  try { do ##class(Bench32.Item).%KillExtent() set a=##class(Bench32.Todo).Add("first") set b=##class(Bench32.Todo).Add("second") set ra=##class(Bench32.Item).%OpenId(a) set rb=##class(Bench32.Item).%OpenId(b) set ok=((a>0)&&(b>a)&&$isobject(ra)&&$isobject(rb)&&(ra.Title="first")&&(rb.Title="second")&&(ra.Created'="")&&($extract(ra.Created,1,2)="20")&&(rb.Created'="")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench32.Item
+    content: |
+      Class Bench32.Item Extends %Persistent
+      {
+
+      Property Title As %String;
+
+      Property Created As %TimeStamp;
+
+      }
+  - name: Bench32.Todo
+    content: |
+      Class Bench32.Todo Extends %RegisteredObject
+      {
+
+      ClassMethod Add(pTitle As %String) As %Integer
+      {
+          Set tStmt = ##class(%SQL.Statement).%New()
+          Set tSC = tStmt.%Prepare("INSERT INTO Bench32.Item (Title, Created) VALUES (?, CURRENT_TIMESTAMP)")
+          If $$$ISERR(tSC) {
+              Quit -1
+          }
+          Set tRs = tStmt.%Execute(pTitle)
+          If tRs.%SQLCODE < 0 {
+              Quit -1
+          }
+          Quit tRs.%ROWID
+      }
+
+      }
+tags: [sql, insert, timestamp]

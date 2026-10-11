@@ -1,0 +1,62 @@
+id: SKILL-36
+prompt: |
+  In the BENCHMARK namespace, Bench10.Sales holds sales rows and has no index on Region. Counting by
+  region reads every row. Bench10.Admin.AddIndex() is called when the table already holds data. Make
+  it add an index on Region with SQL DDL so that SELECT COUNT(*) FROM Bench10.Sales WHERE Region = ?
+  uses the index and still counts every row, including the ones that were there before. It returns a
+  %Status. Calling it a second time must not fail. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-query-plans
+fixtures:
+  - name: Bench10.Sales
+    content: |
+      Class Bench10.Sales Extends %Persistent [ DdlAllowed ]
+      {
+
+      Property Region As %String;
+
+      Property Amount As %Integer;
+
+      }
+  - name: Bench10.Admin
+    content: |
+      Class Bench10.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod AddIndex() As %Status
+      {
+          Quit $$$OK
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Bench10.Sales).%KillExtent() for i=1:1:2000 { set o=##class(Bench10.Sales).%New() set o.Region="R"_(i#10) set o.Amount=i do o.%Save() kill o } set s1=##class(Bench10.Admin).AddIndex() set s2=##class(Bench10.Admin).AddIndex() set a=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench10.Sales WHERE Region = 'R1'") do a.%Next() set rs=##class(%SQL.Statement).%ExecDirect(,"EXPLAIN SELECT COUNT(*) FROM Bench10.Sales WHERE Region = 'R1'") set plan="" while rs.%Next() { set plan=plan_rs.%GetData(1) } set ok=($system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&(a.%GetData(1)=200)&&(plan["Read index map")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench10.Sales
+    content: |
+      Class Bench10.Sales Extends %Persistent [ DdlAllowed ]
+      {
+
+      Property Region As %String;
+
+      Property Amount As %Integer;
+
+      }
+  - name: Bench10.Admin
+    content: |
+      Class Bench10.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod AddIndex() As %Status
+      {
+          Set tRs = ##class(%SQL.Statement).%ExecDirect(, "CREATE INDEX RegionIdx ON TABLE Bench10.Sales (Region)")
+          If (tRs.%SQLCODE < 0) && (tRs.%SQLCODE '= -324) {
+              Quit $$$ERROR($$$SQLError, tRs.%SQLCODE, tRs.%Message)
+          }
+          Quit $$$OK
+      }
+
+      }
+tags: [index, ddl]

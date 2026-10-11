@@ -1,0 +1,61 @@
+id: SKILL-35
+prompt: |
+  In the BENCHMARK namespace, Bench8.Audit.Stale(pCustomer) is a stub. Make it answer 1 when the
+  customer's row count read through the CustIdx index of Bench8.Orders differs from the count read
+  from the data itself, and 0 when they agree (a customer with no rows agrees). It must not change
+  anything. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-query-plans
+fixtures:
+  - name: Bench8.Orders
+    content: |
+      Class Bench8.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench8.Audit
+    content: |
+      Class Bench8.Audit Extends %RegisteredObject
+      {
+
+      ClassMethod Stale(pCustomer As %String) As %Boolean
+      {
+          Quit 0
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Bench8.Orders).%KillExtent() set st=##class(%SQL.Statement).%New() set sc=st.%Prepare("INSERT INTO Bench8.Orders (Customer) VALUES (?)") for i=1:1:6 { set rs=st.%Execute("C1") } set fresh=##class(Bench8.Audit).Stale("C1") set st2=##class(%SQL.Statement).%New() set sc=st2.%Prepare("INSERT %NOINDEX INTO Bench8.Orders (Customer) VALUES (?)") for i=1:1:4 { set rs=st2.%Execute("C1") } set stale=##class(Bench8.Audit).Stale("C1") set other=##class(Bench8.Audit).Stale("C2") set unchanged=##class(Bench8.Audit).Stale("C1") set bs=##class(Bench8.Orders).%BuildIndices($ListBuild("CustIdx")) set rebuilt=##class(Bench8.Audit).Stale("C1") set ok=((fresh=0)&&(stale=1)&&(other=0)&&(unchanged=1)&&(rebuilt=0)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench8.Orders
+    content: |
+      Class Bench8.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench8.Audit
+    content: |
+      Class Bench8.Audit Extends %RegisteredObject
+      {
+
+      ClassMethod Stale(pCustomer As %String) As %Boolean
+      {
+          Set tA = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Bench8.Orders WHERE Customer = ?", pCustomer)
+          Do tA.%Next()
+          Set tB = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Bench8.Orders WHERE %NOINDEX Customer = ?", pCustomer)
+          Do tB.%Next()
+          Quit (tA.%GetData(1) '= tB.%GetData(1))
+      }
+
+      }
+tags: [index, noindex, audit]

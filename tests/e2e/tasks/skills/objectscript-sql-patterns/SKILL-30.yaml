@@ -1,0 +1,60 @@
+id: SKILL-30
+prompt: |
+  Bench30.Look.LabelOf(pCode) in the BENCHMARK namespace must return the Label of the
+  Bench30.Item row whose Code is pCode, asked through embedded SQL. When no row has that Code it
+  must return the string unknown. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-sql-patterns
+fixtures:
+  - name: Bench30.Item
+    content: |
+      Class Bench30.Item Extends %Persistent
+      {
+
+      Property Code As %String;
+
+      Property Label As %String;
+
+      }
+  - name: Bench30.Look
+    content: |
+      Class Bench30.Look Extends %RegisteredObject
+      {
+
+      ClassMethod LabelOf(pCode As %String) As %String
+      {
+          Quit ""
+      }
+
+      }
+check: |
+  try { do ##class(Bench30.Item).%KillExtent() set r=##class(Bench30.Item).%New() set r.Code="A1" set r.Label="alpha" do r.%Save() set r2=##class(Bench30.Item).%New() set r2.Code="B2" set r2.Label="beta" do r2.%Save() set ok=((##class(Bench30.Look).LabelOf("A1")="alpha")&&(##class(Bench30.Look).LabelOf("B2")="beta")&&(##class(Bench30.Look).LabelOf("ZZ")="unknown")&&(##class(Bench30.Look).LabelOf("")="unknown")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench30.Item
+    content: |
+      Class Bench30.Item Extends %Persistent
+      {
+
+      Property Code As %String;
+
+      Property Label As %String;
+
+      }
+  - name: Bench30.Look
+    content: |
+      Class Bench30.Look Extends %RegisteredObject
+      {
+
+      ClassMethod LabelOf(pCode As %String) As %String
+      {
+          &sql(SELECT Label INTO :tLabel FROM Bench30.Item WHERE Code = :pCode)
+          If SQLCODE = 100 {
+              Quit "unknown"
+          }
+          Quit tLabel
+      }
+
+      }
+tags: [sql, into-variables]

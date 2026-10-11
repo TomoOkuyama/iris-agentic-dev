@@ -120,7 +120,8 @@ PYTHONPATH = "."
 tasks = [
   "SKILL-01", "SKILL-04", "SKILL-06", "SKILL-07", "SKILL-08", "SKILL-10", "SKILL-11", "SKILL-12",
   "SKILL-14", "SKILL-15", "SKILL-17", "SKILL-18", "SKILL-19", "SKILL-20", "SKILL-26", "SKILL-27",
-  "SKILL-28", "SKILL-29",
+  "SKILL-28", "SKILL-29", "SKILL-30", "SKILL-31", "SKILL-32", "SKILL-33", "SKILL-34", "SKILL-35",
+  "SKILL-36",
 ]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",

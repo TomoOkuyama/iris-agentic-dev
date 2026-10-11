@@ -1,0 +1,69 @@
+id: SKILL-34
+prompt: |
+  In the BENCHMARK namespace, Bench7.Feed.Add(pCustomer, pCount) adds pCount order rows for a customer
+  to Bench7.Orders. The rows it adds never reach the CustIdx index, so counts per customer that go
+  through the index come back short. Fix it so that every per-customer count is right after each Add
+  call, and keep the index. It returns a %Status. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-query-plans
+fixtures:
+  - name: Bench7.Orders
+    content: |
+      Class Bench7.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench7.Feed
+    content: |
+      Class Bench7.Feed Extends %RegisteredObject
+      {
+
+      ClassMethod Add(pCustomer As %String, pCount As %Integer) As %Status
+      {
+          For i = 1:1:pCount {
+              &sql(INSERT %NOINDEX INTO Bench7.Orders (Customer) VALUES (:pCustomer))
+              If SQLCODE < 0 {
+                  Return $$$ERROR($$$SQLError, SQLCODE, $Get(%msg))
+              }
+          }
+          Quit $$$OK
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Bench7.Orders).%KillExtent() set s1=##class(Bench7.Feed).Add("C1",10) set s2=##class(Bench7.Feed).Add("C2",4) set s3=##class(Bench7.Feed).Add("C1",3) set a=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench7.Orders WHERE Customer = 'C1'") do a.%Next() set b=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench7.Orders WHERE Customer = 'C2'") do b.%Next() set ok=($system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&$system.Status.IsOK(s3)&&(a.%GetData(1)=13)&&(b.%GetData(1)=4)&&##class(%Dictionary.CompiledIndex).%ExistsId("Bench7.Orders||CustIdx")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench7.Orders
+    content: |
+      Class Bench7.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench7.Feed
+    content: |
+      Class Bench7.Feed Extends %RegisteredObject
+      {
+
+      ClassMethod Add(pCustomer As %String, pCount As %Integer) As %Status
+      {
+          For i = 1:1:pCount {
+              &sql(INSERT INTO Bench7.Orders (Customer) VALUES (:pCustomer))
+              If SQLCODE < 0 {
+                  Return $$$ERROR($$$SQLError, SQLCODE, $Get(%msg))
+              }
+          }
+          Quit $$$OK
+      }
+
+      }
+tags: [index, noindex, embedded-sql]
