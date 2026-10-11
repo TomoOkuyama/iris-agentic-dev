@@ -200,3 +200,23 @@ estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds 
 [measure.env]
 PYTHONPATH = "."
 IAD_BINARY = "target/debug/iris-agentic-dev"
+
+# The AI Hub skill needs the 2026.3 AI Hub build on iad-aihub-iris, not iris-dev-iris.
+[[measure]]
+subjects = ["iris-ai-hub"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"

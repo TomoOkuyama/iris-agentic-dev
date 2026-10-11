@@ -122,6 +122,8 @@ class MeasureRule:
     estimate_note: str
     # Extra arguments only for a run whose result may become a verdict (a held-out run).
     verdict_args: tuple = ()
+    # The subjects this rule is for; a rule with none is the default for every other subject.
+    subjects: tuple = ()
 
 
 @dataclass
@@ -229,7 +231,7 @@ _ALLOWED = {
 }
 _ALLOWED_MEASURE = {
     "command", "dry_run_flag", "repeats", "cost_regex", "runs_file_regex", "env", "timeout_seconds",
-    "estimate_note", "verdict_args",
+    "estimate_note", "verdict_args", "subjects",
 }
 _ALLOWED_RULE = {"tasks", "command", "container", "start_hint", "env"}
 _ALLOWED_TRY = {
@@ -319,6 +321,7 @@ def load_config(path: Path) -> Config:
             timeout_seconds=int(rule.get("timeout_seconds", 14400)),
             estimate_note=rule.get("estimate_note", ""),
             verdict_args=tuple(rule.get("verdict_args", [])),
+            subjects=tuple(rule.get("subjects", [])),
         ))
     budget = raw.get("budget", {})
     criteria = raw.get("evidence", {}).get("criteria", "")
@@ -1137,8 +1140,9 @@ def run_measure(args, cfg, runner, confirm, who, git_state, out, now) -> int:
     if not cfg.measures:
         out("The adapter has no [[measure]] rule, so improve does not know how to run a subject.")
         return 2
-    rule = cfg.measures[0]
     subject = args.subject
+    rule = next((r for r in cfg.measures if subject in r.subjects), None) \
+        or next((r for r in cfg.measures if not r.subjects), cfg.measures[0])
     side = "holdout" if args.purpose == "verdict" else "train"
     events = read_ledger(cfg)
     spent_total = programme_spend(cfg, events)

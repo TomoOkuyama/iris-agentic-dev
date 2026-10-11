@@ -60,6 +60,7 @@ def rule(**over):
         timeout_seconds=3600,
         estimate_note="Estimates run low. The cap bounds the spend.",
         verdict_args=(),
+        subjects=(),
     )
     base.update(over)
     return improve.MeasureRule(**base)
@@ -454,3 +455,28 @@ def test_a_continuation_passes_extra_arguments_and_names_the_run_it_continues(wo
 def test_a_plain_measure_has_no_continues_field(world):
     go(["measure", "objectscript-tdd", "--yes"], world)
     assert "continues" not in ledger(world)[-1]
+
+
+# ---- a rule can name the subjects it is for (another container, another port) ----------------------------
+
+
+def test_a_measure_rule_that_names_the_subject_wins_over_the_default(world):
+    world.measures = (
+        rule(subjects=("iris-ai-hub",), command=("ladder", "--subject", "{subject}", "--web-port", "52781")),
+        rule(),
+    )
+    _, _, runner, _ = go(["measure", "iris-ai-hub", "--yes"], world)
+    real = next(c for c in runner.calls if DRY not in c)
+    assert "--web-port" in real and real[real.index("--web-port") + 1] == "52781"
+    _, _, runner2, _ = go(["measure", "objectscript-tdd", "--yes"], world)
+    real2 = next(c for c in runner2.calls if DRY not in c)
+    assert "--web-port" not in real2
+
+
+def test_this_repos_adapter_sends_the_ai_hub_skill_to_the_ai_hub_container():
+    cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
+    hub = next(r for r in cfg.measures if "iris-ai-hub" in r.subjects)
+    assert hub.command[hub.command.index("--web-port") + 1] == "52781"
+    assert hub.command[hub.command.index("--container") + 1] == "iad-aihub-iris"
+    default = next(r for r in cfg.measures if not r.subjects)
+    assert "--web-port" not in default.command
