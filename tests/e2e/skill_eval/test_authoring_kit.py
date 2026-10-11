@@ -232,3 +232,29 @@ def test_run_one_records_quality_beside_pass(monkeypatch):
     assert run.passed is False
     assert run.quality == 1.0
     assert run.quality_detail == {"a": True}
+
+
+# --- the fingerprint a run records so a changed task is visible -------------------------------------
+
+
+def test_the_fingerprint_changes_with_the_check_the_prompt_or_a_fixture(tmp_path):
+    base = load_task(str(write(tmp_path)))
+    again = load_task(str(write(tmp_path)))
+    assert graded_task.task_fingerprint(base) == graded_task.task_fingerprint(again)
+    for field, value in (
+        ("prompt", "other"),
+        ("check", 'write $select(0:"PASS",1:"FAIL")'),
+        ("fixtures", (graded_task.Document("Bench.K", "x"),)),
+        ("quality_checks", (graded_task.QualityCheck("a", 'write "PASS","FAIL"'),)),
+    ):
+        changed = type(base)(**{**base.__dict__, field: value})
+        assert graded_task.task_fingerprint(changed) != graded_task.task_fingerprint(base), field
+
+
+def test_every_session_line_can_carry_the_task_fingerprint():
+    from tests.e2e.skill_eval import ladder
+
+    line = ladder.session_line(
+        {"task_id": "T"}, side="holdout", build=None, fingerprints={"T": "abc"}
+    )
+    assert line["task_fingerprint"] == "abc"

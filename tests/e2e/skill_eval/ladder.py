@@ -889,9 +889,15 @@ def parse_args(argv=None):
     return args
 
 
-def session_line(run: dict, *, side: str, build: dict | None) -> dict:
+def session_line(
+    run: dict, *, side: str, build: dict | None, fingerprints: dict | None = None
+) -> dict:
     """What one finished session writes to the incremental file."""
-    return {**run, "side": side, **({"build": build} if build else {})}
+    line = {**run, "side": side, **({"build": build} if build else {})}
+    fingerprint = (fingerprints or {}).get(run.get("task_id"))
+    if fingerprint:
+        line["task_fingerprint"] = fingerprint
+    return line
 
 
 def _main(argv=None) -> int:
@@ -988,10 +994,23 @@ def _main(argv=None) -> int:
     incremental = os.path.join(RESULTS_DIR, f"{run_id}.runs.jsonl")
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
+    fingerprints = {
+        task.id: graded_task.task_fingerprint(task)
+        for task in tasks
+        if isinstance(task, graded_task.GradedTask)
+    }
+
     def record(run):
         with open(incremental, "a", encoding="utf-8") as handle:
             handle.write(
-                json.dumps(session_line(asdict(run), side=args.side, build=build))
+                json.dumps(
+                    session_line(
+                        asdict(run),
+                        side=args.side,
+                        build=build,
+                        fingerprints=fingerprints,
+                    )
+                )
                 + "\n"
             )
 

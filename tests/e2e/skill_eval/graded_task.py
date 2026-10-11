@@ -147,6 +147,27 @@ class GradedTask:
     quality_checks: tuple[QualityCheck, ...] = field(default_factory=tuple)
 
 
+def task_fingerprint(task: GradedTask) -> str:
+    """A hash of everything about a task that decides its outcome. A run records it, so a task edited
+    between two runs cannot be pooled as if it were the same task (135)."""
+    import hashlib
+
+    body = json.dumps(
+        {
+            "prompt": task.prompt,
+            "check": task.check,
+            "fixtures": [[d.name, d.content] for d in task.fixtures],
+            "solution": [[d.name, d.content] for d in task.solution],
+            "quality": [[q.name, q.check] for q in task.quality_checks],
+            "namespace": task.namespace,
+            "skill": task.skill,
+            "teardown": task.teardown,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def check_verdict(output: str) -> bool:
     """Read a check's stdout. PASS or FAIL, or `CheckBroken` — never a silent third answer."""
     text = output.strip()

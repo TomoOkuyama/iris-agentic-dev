@@ -51,8 +51,12 @@ S is net positive when criteria 1, 2 and 3 all hold on its held-out tasks.
      lower bound above zero, and the treated arm's pass count is at least the `tools` arm's.
 3. **Replicated.** A second run (new run id, fresh sessions, a new binary build if code changed
    between runs) meets criterion 1 by itself, and either
-   - the pooled data of both runs meet criterion 1 and the same part of criterion 2 (same numbers,
-     on the pooled pairs and the pooled tasks), or
+   - the pooled data of the runs meet criterion 1 and the same part of criterion 2 (same numbers, on
+     the pooled pairs and the pooled tasks), and each later run, by itself, points the same way on
+     that part (completion: its b is above its c; efficiency: its calls ratio, its cost ratio and its
+     mean per-task cost difference are all below 1, below 1 and below 0; quality: its mean
+     difference is above 0). This is stricter than pooling alone, which a level second run could
+     pass on the strength of the first; or
    - on every task that decided the first run, the second run agrees in direction. For completion a
      task decided the run when it had b or c above zero; it agrees when the sign of its (b minus c)
      is the same in the second run and not zero. For efficiency every task decides, and a task agrees
@@ -61,7 +65,14 @@ S is net positive when criteria 1, 2 and 3 all hold on its held-out tasks.
 Anything else is **not net positive**, reported with its numbers. The kind of win is the part of
 criterion 2 that held: `completion`, `efficiency` or `quality`. A skill can hold more than one.
 
-## Intervals
+## Intervals and the rest of the arithmetic
+
+- A task with fewer than 2 usable pairs is left out of every figure and is listed with its count.
+- Criterion 2c is available only when every eligible task declares `quality_checks`; otherwise it is
+  reported as not available and cannot carry a verdict.
+- "The interval for the per-task mean difference" is the interval for the mean, over eligible tasks,
+  of each task's mean (treated minus tools).
+- The calls and cost ratios are pooled sums over usable pairs (sum treated over sum tools).
 
 - 95 percent percentile bootstrap, 10000 resamples, seed 135, resampling **tasks** with replacement
   and taking each resampled task's usable-pair means, so repeats of a task are never treated as
