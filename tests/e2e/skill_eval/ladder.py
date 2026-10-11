@@ -910,6 +910,16 @@ def _main(argv=None) -> int:
             return 2
         # The tools ladder can also run the opt-in arms (skills-only) when they are named.
         offered = list(arms) + (list(OPTIONAL_ARMS) if args.ladder == "tools" else [])
+        if args.ladder == "tools":
+            # `tools+<skill>` builds that one skill's preloaded rung for any task, so a task outside
+            # the skill corpus can be run with and without the one skill that carries its fact. A
+            # skill the pack does not ship is left out here and reported as an unknown arm below.
+            from tests.e2e.skill_eval.arms import _pack_skills
+
+            shipped = _pack_skills()
+            for name in args.arm:
+                if name.startswith("tools+") and name.removeprefix("tools+") in shipped:
+                    offered.append(skill_arm(name.removeprefix("tools+")))
         known = [arm.name for arm in offered]
         unknown = [name for name in args.arm if name not in known]
         if unknown:

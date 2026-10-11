@@ -1180,3 +1180,36 @@ def test_the_skill_ladder_does_not_offer_the_skills_only_arm(capsys):
         ["--ladder", "skill", "--skill", "iris-sql", "--arm", "skills-only", "--dry-run"]
     )
     assert code == 2
+
+
+def test_the_tools_ladder_can_run_one_named_skill_against_any_task(capsys):
+    """`--arm tools+<skill>` builds that skill's preloaded rung, so a knowledge-gap task outside the
+    twelve skill tasks can still be run with and without the one skill that carries the fact."""
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        [
+            "--ladder",
+            "tools",
+            "--arm",
+            "tools",
+            "--arm",
+            "tools+objectscript-guardrails",
+            "--task",
+            "CORPUS-40",
+            "--dry-run",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "tools+objectscript-guardrails" in out and "2 arms" in out
+
+
+def test_a_skill_the_pack_does_not_ship_is_refused_on_the_tools_ladder(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "tools", "--arm", "tools+no-such-skill", "--task", "CORPUS-40", "--dry-run"]
+    )
+    assert code == 2
+    assert "no-such-skill" in capsys.readouterr().out
