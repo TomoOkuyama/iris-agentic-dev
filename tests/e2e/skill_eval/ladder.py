@@ -55,6 +55,8 @@ RESULTS_DIR = os.path.join(
 
 #: The model every arm runs, held here rather than passed per arm: the arms are comparable to each
 #: other because the model was the same in all of them.
+#: How many more times a session is run when the iad server never answered in it.
+SERVER_RETRIES = 2
 LADDER_MODEL = "openai/gpt-4.1"
 
 #: The same clock in every arm. A killed session counts as a failure — the task was not solved — and
@@ -615,6 +617,28 @@ def report(
 # --- the run ---------------------------------------------------------------------------------------
 
 
+def server_was_dead(run) -> bool:
+    """True for a session left unscored because the iad server never answered."""
+    return run.passed is None and "never answered" in (run.reason or "")
+
+
+def print_run(run, cost: float, retry: bool = False) -> None:
+    print(
+        f"{run.task_id:<12} {run.arm:<34} "
+        f"{'—' if run.passed is None else ('PASS' if run.passed else 'FAIL'):<5} "
+        f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${cost:.2f}"
+        + ("  TIMEOUT" if run.timed_out else "")
+        + (
+            ""
+            if run.skill_loaded is None
+            else ("  skill loaded" if run.skill_loaded else "  NOT LOADED")
+        )
+        + (f"  [{run.reason}]" if run.reason else "")
+        + ("  (running it again)" if retry else ""),
+        flush=True,
+    )
+
+
 def run_ladder(
     tasks,
     arms=ARMS,
@@ -680,46 +704,41 @@ def run_ladder(
                     if on_events is not None:
                         on_events(t, a, r, events)
 
-                run = run_one(
-                    task,
-                    arm,
-                    openai_api_key=key,
-                    model=model,
-                    timeout=timeout,
-                    skill_names=skill_names,
-                    iris_host=host,
-                    iris_web_port=port,
-                    iris_container=iris_container,
-                    binary=binary,
-                    driver=driver,
-                    on_events=take_events,
-                    effort=effort,
-                )
-                stream = streams.pop() if streams else []
-                cost = session_cost(stream)
-                spent += cost
-                run = type(run)(
-                    **{
-                        **asdict(run),
-                        "run_index": repeat,
-                        "tokens": session_tokens(stream),
-                        "cost_usd": cost,
-                    }
-                )
-                runs.append(run)
-                print(
-                    f"{run.task_id:<12} {run.arm:<34} "
-                    f"{'—' if run.passed is None else ('PASS' if run.passed else 'FAIL'):<5} "
-                    f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${cost:.2f}"
-                    + ("  TIMEOUT" if run.timed_out else "")
-                    + (
-                        ""
-                        if run.skill_loaded is None
-                        else ("  skill loaded" if run.skill_loaded else "  NOT LOADED")
+                for attempt in range(1, SERVER_RETRIES + 2):
+                    run = run_one(
+                        task,
+                        arm,
+                        openai_api_key=key,
+                        model=model,
+                        timeout=timeout,
+                        skill_names=skill_names,
+                        iris_host=host,
+                        iris_web_port=port,
+                        iris_container=iris_container,
+                        binary=binary,
+                        driver=driver,
+                        on_events=take_events,
+                        effort=effort,
                     )
-                    + (f"  [{run.reason}]" if run.reason else ""),
-                    flush=True,
-                )
+                    stream = streams.pop() if streams else []
+                    cost = session_cost(stream)
+                    spent += cost
+                    run = type(run)(
+                        **{
+                            **asdict(run),
+                            "run_index": repeat,
+                            "tokens": session_tokens(stream),
+                            "cost_usd": cost,
+                            "attempts": attempt,
+                        }
+                    )
+                    if attempt > SERVER_RETRIES or not server_was_dead(run):
+                        break
+                    # The session ran without its tools, which says nothing about the arm: run it again.
+                    # Its cost is still printed, so the ledger's spend counts it.
+                    print_run(run, cost, retry=True)
+                runs.append(run)
+                print_run(run, cost)
                 if on_run is not None:
                     on_run(run)
                 if run.skill_loaded is not None:

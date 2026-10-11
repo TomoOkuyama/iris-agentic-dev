@@ -122,6 +122,9 @@ class ArmRun:
     #: Dollars the session billed (sum of `step_finish.cost`). None for a record from before 135, which
     #: printed the figure and did not store it.
     cost_usd: float | None = None
+    #: How many times the session was run to get this result: more than 1 when the iad server never
+    #: answered in an earlier attempt (the attempt that is kept is the last).
+    attempts: int = 1
     #: The fraction of the task's `quality_checks` that passed, beside `passed` (135). None when the
     #: task declares none or none answered.
     quality: float | None = None

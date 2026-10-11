@@ -275,3 +275,79 @@ def test_the_server_name_matches_whether_it_carries_hyphens_or_underscores():
         _call("b", False, "Request timed out", server="iris_agentic_dev"),
     ]
     assert server_never_answered(calls, "iris-agentic-dev") is True
+
+
+# --- a dead-server session is run again, up to twice --------------------------------------------------------
+
+
+def _dead(task_id, arm):
+    from tests.e2e.skill_eval.test_ladder import run
+
+    return run(task_id, arm, None, reason="the iad server never answered (every call timed out), so the session ran without its tools")
+
+
+def test_a_session_whose_server_never_answered_is_run_again(monkeypatch):
+    from tests.e2e.skill_eval import ladder, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_ladder import FakeTask, run
+
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "t")
+    answers = [_dead("CORPUS-01", "tools"), run("CORPUS-01", "tools", True)]
+    calls = []
+
+    def run_one(task, arm, **kw):
+        calls.append(1)
+        return answers[len(calls) - 1]
+
+    monkeypatch.setattr(pilot, "run_one", run_one)
+    runs = ladder.run_ladder([FakeTask("CORPUS-01")], (TOOLS,), model=LUNA)
+    assert len(calls) == 2 and len(runs) == 1 and runs[0].passed is True
+
+
+def test_the_retry_stops_after_two_more_tries(monkeypatch):
+    from tests.e2e.skill_eval import ladder, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_ladder import FakeTask
+
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "t")
+    calls = []
+
+    def run_one(task, arm, **kw):
+        calls.append(1)
+        return _dead(task.id, arm.name)
+
+    monkeypatch.setattr(pilot, "run_one", run_one)
+    try:
+        runs = ladder.run_ladder([FakeTask("CORPUS-01")], (TOOLS,), model=LUNA)
+    except ladder.LadderAborted:
+        runs = None
+    assert len(calls) == 3
+
+
+def test_other_unscored_reasons_are_not_retried(monkeypatch):
+    from tests.e2e.skill_eval import ladder, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_ladder import FakeTask, run
+
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "t")
+    calls = []
+
+    def run_one(task, arm, **kw):
+        calls.append(1)
+        return run(task.id, arm.name, None, reason="the check did not answer")
+
+    monkeypatch.setattr(pilot, "run_one", run_one)
+    ladder.run_ladder([FakeTask("CORPUS-01")], (TOOLS,), model=LUNA)
+    assert len(calls) == 1
+
+
+def test_a_retried_session_records_how_many_attempts_it_took(monkeypatch):
+    from tests.e2e.skill_eval import ladder, pilot
+    from tests.e2e.skill_eval.arms import TOOLS
+    from tests.e2e.skill_eval.test_ladder import FakeTask, run
+
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "t")
+    answers = iter([_dead("C", "tools"), _dead("C", "tools"), run("C", "tools", True)])
+    monkeypatch.setattr(pilot, "run_one", lambda task, arm, **kw: next(answers))
+    runs = ladder.run_ladder([FakeTask("C")], (TOOLS,), model=LUNA)
+    assert runs[0].attempts == 3
