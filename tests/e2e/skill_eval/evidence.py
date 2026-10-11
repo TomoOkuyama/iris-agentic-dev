@@ -448,6 +448,11 @@ def _fingerprints(lines):
     }
 
 
+def _subject(event):
+    """The ledger names the thing measured `subject`; here it is a skill."""
+    return event.get("subject") or event.get("skill")
+
+
 def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") -> dict:
     """Per-skill rows from the ledger's `measure` events and the run files they name."""
     measures = [e for e in events if e.get("event") == "measure"]
@@ -457,10 +462,10 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
             f"{criteria_path} changed after the first 135 run event recorded its hash, so no verdict "
             "is given. A changed criterion is a new study with new runs"
         )
-    skills = sorted(set(heldout) | {e["skill"] for e in measures if e.get("skill")})
+    skills = sorted(set(heldout) | {_subject(e) for e in measures if _subject(e)})
     for skill in skills:
         mine = sorted(
-            (e for e in measures if e.get("skill") == skill), key=lambda e: e["ts"]
+            (e for e in measures if _subject(e) == skill), key=lambda e: e["ts"]
         )
         verdict_events = [e for e in mine if e.get("purpose") == "verdict"]
         runs, prints, builds = [], [], []

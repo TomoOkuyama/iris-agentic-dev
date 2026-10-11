@@ -420,7 +420,7 @@ def event(i, runs_file, **kw):
         "ts": f"2026-10-11T0{i}:00:00Z",
         "id": f"IMP-00{i}",
         "event": "measure",
-        "skill": SKILL,
+        "subject": SKILL,
         "side": "holdout",
         "purpose": "verdict",
         "runs_file": runs_file,
