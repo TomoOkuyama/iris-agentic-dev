@@ -289,31 +289,37 @@ def test_the_new_try_keys_round_trip_from_toml(tmp_path):
 
 
 def test_this_projects_adapter_has_rules_for_the_skill_tasks():
+    """Every skill task has a `[[try]]` rule whose `--side` is the side the split gives it, so a task
+    that moves to train (135 moved seven) cannot keep a rule that asks for the holdout."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from tests.e2e.skill_eval.graded_task import skill_corpus
+    from tests.e2e.skill_eval.split import default_split
+
     cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
-    holdout = improve.try_rule_for(cfg, "SKILL-02")
-    train = improve.try_rule_for(cfg, "SKILL-13")
-    for rule in (holdout, train):
-        assert rule.treated_prefix == "tools+" and rule.applied_field == "skill_loaded"
+    split = default_split()
+    for task in skill_corpus():
+        rule = improve.try_rule_for(cfg, task.id)
+        assert rule is not None and rule.tasks is not None and task.id in rule.tasks, task.id
+        assert rule.treated_prefix == "tools+" and rule.applied_field == "skill_loaded", task.id
         assert "tools+skills" in rule.treated_exclude, "the pooled all-skills arm is not a per-task skill"
-        assert rule.judge_calls and rule.before_glob
-        assert "--skill" in rule.command and "all" in rule.command, "the pooled rung, one skill per task"
-    assert holdout.command[holdout.command.index("--side") + 1] == "holdout"
-    assert train.command[train.command.index("--side") + 1] == "train"
-    assert "SKILL-02" in holdout.tasks and "SKILL-02" not in train.tasks
-    assert "SKILL-13" in train.tasks and "SKILL-13" not in holdout.tasks
+        assert rule.judge_calls and rule.before_glob, task.id
+        assert "--skill" in rule.command and "all" in rule.command, task.id
+        side = rule.command[rule.command.index("--side") + 1]
+        assert side == split.side_of(task.id), f"{task.id}: rule asks for {side}, split says {split.side_of(task.id)}"
     assert improve.try_rule_for(cfg, "CORPUS-40").treated_prefix == "", "other tasks keep the single arm"
 
 
 def test_the_ai_hub_tasks_run_against_the_ai_hub_container():
     """SKILL-22 to 25 need the 2026.3 AI Hub build; the generic rules would run them on iris-dev-iris."""
     cfg = improve.load_config(Path(__file__).resolve().parents[1] / "project.toml")
-    for task, side in (("SKILL-24", "holdout"), ("SKILL-25", "holdout"), ("SKILL-22", "train"), ("SKILL-23", "train")):
+    for task in ("SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25"):
         rule = improve.try_rule_for(cfg, task)
         cmd = list(rule.command)
-        assert cmd[cmd.index("--side") + 1] == side, task
         assert cmd[cmd.index("--web-port") + 1] == "52781", task
         assert cmd[cmd.index("--container") + 1] == "iad-aihub-iris", task
         assert rule.treated_prefix == "tools+" and rule.applied_field == "skill_loaded" and rule.judge_calls, task
-    generic = improve.try_rule_for(cfg, "SKILL-02")
+    generic = improve.try_rule_for(cfg, "SKILL-01")
     assert "--web-port" not in generic.command and "--container" not in generic.command
-    assert "SKILL-24" not in generic.tasks and "SKILL-22" not in improve.try_rule_for(cfg, "SKILL-13").tasks
+    assert "SKILL-24" not in generic.tasks

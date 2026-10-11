@@ -615,12 +615,16 @@ def test_the_pooled_task_set_is_every_holdout_skill_task_and_each_one_names_a_sk
     pair anyway."""
     from tests.e2e.skill_eval import ladder
 
+    from tests.e2e.skill_eval.evidence import load_read
+    from tests.e2e.skill_eval.split import default_split
+
     tasks = ladder.pooled_skill_tasks()
-    # 121's twelve over four skills, plus 130's SKILL-13 to SKILL-19, plus 132's holdout pair
-    # SKILL-24/25 for iris-ai-hub. SKILL-22/23 are train and stay out.
-    assert len(tasks) == 21
+    # The count moves as tasks are authored (135) and as tasks are read and move to train, so the
+    # invariants are what is pinned: every one names a skill, is on the holdout side and was not read.
+    assert tasks
     assert all(task.skill for task in tasks)
-    assert len({task.skill for task in tasks}) == 10
+    assert {task.id for task in tasks} <= set(default_split().holdout)
+    assert not {task.id for task in tasks} & set(load_read())
 
 
 # --- the dead-environment abort --------------------------------------------------------------------

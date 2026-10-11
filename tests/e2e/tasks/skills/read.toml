@@ -2,3 +2,36 @@
 # Each is a train task whatever it was called before. `improve skills` leaves them out of every
 # held-out figure, and `test_the_committed_read_tasks_are_all_on_the_train_side` keeps split.toml
 # honest. A skill that loses a held-out task here needs a fresh one (135 criteria.md, eligibility).
+
+[SKILL-02]
+reason = "objectscript-guardrails edit b854b2c was fitted to its transcripts (IMP-0006)"
+
+[SKILL-03]
+reason = "read for the same guardrails edit (IMP-0008, mixed)"
+
+[SKILL-05]
+reason = "read for the same guardrails edit (IMP-0007)"
+
+[SKILL-09]
+reason = "130 round 3 and 4 read its transcripts to decide that sql-patterns needed no edit and to correct sections 3, 5 and 9"
+
+[SKILL-13]
+reason = "train since 130 round 3: the iris-query-plans %NOINDEX section was rewritten from its transcripts"
+
+[SKILL-16]
+reason = "130 round 3 read its transcripts and found iris_macro returned {}, which led to a tool fix"
+
+[SKILL-21]
+reason = "train since the day it was written (130 round 4): the sql-patterns fix was fitted to it"
+
+[SKILL-22]
+reason = "train since the day it was written (132): the iris-ai-hub skill edit was fitted to it"
+
+[SKILL-23]
+reason = "train since the day it was written (132): the iris-ai-hub skill edit was fitted to it"
+
+[SKILL-24]
+reason = "132 and IMP-0009/IMP-0010 read its transcripts while editing iris-ai-hub"
+
+[SKILL-25]
+reason = "132 and IMP-0009/IMP-0010 read its transcripts while editing iris-ai-hub"
