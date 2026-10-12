@@ -162,6 +162,58 @@ in 3 pairs, only tools in none; passes 118 against 121. The lift is +0.024 with 
 The agent loaded a skill in 123 of 123 `tools+skills` sessions, where gpt-4.1 loaded one in 0 of 58. So on luna
 the lift, if any, is not the skill index alone, and it costs about twice as much.
 
+## Independent items: the skills on a benchmark I did not write
+
+My held-out tasks were written from each skill's own text. To check that against work I did not design, I ran
+the three skills that did best against `evals-objectscript`'s 140-item ObjectScript benchmark (its
+`skillbench lift`): each of its 93 IRIS-executed items is answered once without the skill and once with it by
+the same model, and both answers are compiled and run in IRIS. No judge. I used a working copy of that
+repository with the current skill files and added the two Bedrock models; the repository itself was not
+changed. Run files are in `tests/e2e/results/independent-lift/`.
+
+| Model            | Skill                        | Pass without / with | b / c | Lift    | McNemar exact p |
+| ---------------- | ---------------------------- | ------------------- | ----- | ------- | --------------- |
+| gpt-oss-120b     | `objectscript-list-patterns` | 30 / 29 of 93       | 7 / 8 | −1.1 pp | 1.00            |
+| gpt-oss-120b     | `objectscript-guardrails`    | 31 / 29             | 7 / 9 | −2.2 pp | 0.80            |
+| gpt-oss-120b     | `iris-query-plans`           | 29 / 27             | 5 / 7 | −2.2 pp | 0.77            |
+| gpt-6-luna, high | `objectscript-list-patterns` | 57 / 56             | 4 / 5 | −1.1 pp | 1.00            |
+| gpt-6-luna, high | `objectscript-guardrails`    | 53 / 51             | 4 / 6 | −2.2 pp | 0.75            |
+| gpt-6-luna, high | `iris-query-plans`           | 55 / 53             | 2 / 4 | −2.2 pp | 0.69            |
+
+No lift on either model for any skill, every interval containing zero. The benchmark is generic, so few items
+touch a given skill: by keyword, 4 items involve lists and 3 involve index maintenance, and 19 touch the
+guardrails topics. On the 19 guardrails items luna lost 3 and won 0 (p = 0.25). On the 4 list items,
+`gpt-oss-120b` won 1 and lost 1. Those subsets are too small to read.
+
+So the list-patterns result stands as a result about tasks built around the skill's own facts, on a weak
+model, and is not detectable on generic ObjectScript work. It should be stated that narrowly.
+
+## McNemar p-values and cost per pass
+
+`improve skills` now prints the exact two-sided McNemar p-value on b against c, and the cost of a pass (the
+arm's cost over its passes). A selection of the runs (p for b against c; cost per pass, tools / with skill):
+
+| Study        | Skill                              | b / c  | p     | Cost per pass   |
+| ------------ | ---------------------------------- | ------ | ----- | --------------- |
+| gpt-4.1      | `objectscript-guardrails`          | 10 / 0 | 0.002 | $2.28 / $1.79   |
+| gpt-oss-120b | `objectscript-list-patterns` run 1 | 9 / 0  | 0.004 | $1.25 / $0.12   |
+| gpt-oss-120b | `objectscript-list-patterns` run 2 | 10 / 1 | 0.012 | $0.96 / $0.11   |
+| gpt-oss-120b | `iris-query-plans` run 1           | 5 / 1  | 0.22  | $0.16 / $0.19   |
+| gpt-oss-120b | `objectscript-sql-patterns`        | 8 / 2  | 0.11  | $0.34 / $0.17   |
+| gpt-oss-120b | `objectscript-guardrails` run 1    | 5 / 2  | 0.45  | $0.34 / $0.18   |
+| gpt-6-luna   | `objectscript-guardrails` run 2    | 0 / 2  | 0.50  | $0.008 / $0.009 |
+| gpt-4.1      | `iris-sql` (stopped)               | 0 / 3  | 0.25  | $1.36 / $4.80   |
+
+For `objectscript-list-patterns` on gpt-oss-120b the cost of a pass drops by about a factor of 10, because
+the tools arm passed almost nothing and so spent its money on failures; the cost per attempt is level. That
+makes the completion win cheap per pass, which the cost ratio alone does not show.
+
+The p-values are not corrected for multiple comparisons: about 25 skill runs were tested across three
+studies. A Bonferroni threshold of 0.05 over seven skills is 0.007. At that threshold the gpt-4.1
+`objectscript-guardrails` run (0.002) and the first gpt-oss-120b `objectscript-list-patterns` run (0.004)
+pass, and the second list-patterns run (0.012) does not. The pre-registered replication rule, not the p-value,
+is what decides net positive here.
+
 ## Budget
 
 Total measured spend $275.15 of $300: $237.69 on the gpt-4.1 study (IMP-0011 to IMP-0019) and $37.46 on the
