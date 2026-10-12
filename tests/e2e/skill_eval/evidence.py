@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import random
 from collections import defaultdict
@@ -65,6 +66,15 @@ def bootstrap_interval(
         statistic([items[rng.randrange(n)] for _ in range(n)]) for _ in range(resamples)
     )
     return (values[int(0.025 * resamples)], values[int(0.975 * resamples) - 1])
+
+
+def mcnemar_exact(b: int, c: int) -> float:
+    """Two-sided exact McNemar p-value on the discordant pair counts (a sign test on b against c)."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    tail = sum(math.comb(n, k) for k in range(min(b, c) + 1)) / 2**n
+    return min(1.0, 2 * tail)
 
 
 def _mean(xs):
@@ -188,6 +198,9 @@ def _analyse(lines, skill, heldout, *, check_repeats):
         },
         "tools_passes": sum(1 for t, _ in pairs if t["passed"]),
         "treated_passes": sum(1 for _, s in pairs if s["passed"]),
+        "mcnemar_p": mcnemar_exact(b, c),
+        "tools_cost_per_pass": _cost_per_pass([t for t, _ in pairs]),
+        "treated_cost_per_pass": _cost_per_pass([s for _, s in pairs]),
         "timeouts": sum(
             1 for t, s in pairs if t.get("timed_out") or s.get("timed_out")
         ),
@@ -195,6 +208,16 @@ def _analyse(lines, skill, heldout, *, check_repeats):
     }
     result.update(_criteria(result, eligible, per_task))
     return result
+
+
+def _cost_per_pass(sessions):
+    """Dollars spent over the sessions divided by how many passed. None when nothing passed or a cost is
+    missing: a figure built on a gap would read as a measurement."""
+    passes = sum(1 for x in sessions if x["passed"])
+    costs = [x.get("cost_usd") for x in sessions]
+    if not passes or any(c is None for c in costs):
+        return None
+    return sum(costs) / passes
 
 
 def _has_cost(group):
@@ -591,6 +614,10 @@ def _ci(ci, fmt="{:+.2f}"):
     return f"[{fmt.format(ci[0])}, {fmt.format(ci[1])}]"
 
 
+def _usd(value) -> str:
+    return "n/a" if value is None else f"${value:.3f}"
+
+
 def _models_text(row: dict) -> str:
     return ", ".join(row.get("models", [])) or "not recorded (sessions before 135 carry none)"
 
@@ -640,6 +667,12 @@ def render_row(skill: str, row: dict) -> str:
                 f"cache r{t.get('cache_read', 0):,}/w{t.get('cache_write', 0):,}"
             )
         lines.append(f"  tokens    tools {one(tok.get('tools', {}))} | treated {one(tok.get('treated', {}))}")
+    lines.append(
+        f"  McNemar p {first['mcnemar_p']:.3f}   cost per pass: tools "
+        + _usd(first.get("tools_cost_per_pass"))
+        + ", with skill "
+        + _usd(first.get("treated_cost_per_pass"))
+    )
     if first.get("quality_available"):
         lines.append(
             f"  quality   diff {first['quality_diff']:+.2f} 95% {_ci(first.get('quality_diff_ci'))}"
@@ -674,6 +707,11 @@ def render_markdown(report: dict) -> str:
             out.append(f"| Usable pairs | {one['pairs']} | |")
             out.append(f"| Only the skill passed (b) | {one['b']} | |")
             out.append(f"| Only tools passed (c) | {one['c']} | |")
+            out.append(f"| McNemar exact p (b against c) | {one['mcnemar_p']:.3f} | |")
+            out.append(
+                f"| Cost per pass, tools / with skill | {_usd(one.get('tools_cost_per_pass'))} / "
+                f"{_usd(one.get('treated_cost_per_pass'))} | |"
+            )
             rate = one["loaded_rate"]
             out.append(f"| Skill loaded in treated sessions | {'n/a' if rate is None else f'{rate:.0%}'} | |")
             out.append(f"| Unloaded / unscored pairs | {one['unloaded']} / {one['unscored']} | |")

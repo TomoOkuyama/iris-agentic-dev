@@ -106,3 +106,17 @@ def test_the_text_report_names_the_model_and_the_load_rate(tmp_path):
     lines = [line("T1", "tools", 0, True), line("T1", "tools+skills", 0, True, skill_calls=1)]
     text = pooled_ladder.render(pooled_ladder.pool([write(tmp_path, "a", lines)]))
     assert "luna" in text and "loaded a skill" in text and "95%" in text
+
+
+def test_the_pooled_ladder_reports_mcnemar_p_and_cost_per_pass(tmp_path):
+    lines = []
+    for i in range(6):
+        lines.append(line(f"T{i}", "tools", 0, i < 2, cost=1.0))
+        lines.append(line(f"T{i}", "tools+skills", 0, True, cost=0.5))
+    result = pooled_ladder.pool([write(tmp_path, "a", lines)])
+    assert result["b"] == 4 and result["c"] == 0
+    assert abs(result["mcnemar_p"] - 2 / 16) < 1e-9
+    assert abs(result["tools_cost_per_pass"] - 6 / 2) < 1e-9
+    assert abs(result["treated_cost_per_pass"] - 3 / 6) < 1e-9
+    text = pooled_ladder.render(result)
+    assert "McNemar p" in text and "per pass" in text

@@ -789,3 +789,52 @@ def test_a_survey_run_makes_no_skill_row(tmp_path):
         events, criteria_path=str(criteria), heldout={SKILL: set(TASKS)}, task_skill={t: SKILL for t in TASKS}
     )
     assert list(report["skills"]) == [SKILL]
+
+
+# --- the exact McNemar p-value and the cost of a pass ----------------------------------------------------
+
+
+def test_mcnemar_exact_matches_the_known_two_sided_values():
+    assert evidence.mcnemar_exact(0, 0) == 1.0
+    assert evidence.mcnemar_exact(5, 5) == 1.0
+    assert evidence.mcnemar_exact(10, 0) == pytest.approx(2 / 1024)
+    assert evidence.mcnemar_exact(0, 10) == pytest.approx(2 / 1024)
+    assert evidence.mcnemar_exact(3, 0) == pytest.approx(0.25)
+    assert evidence.mcnemar_exact(9, 1) == pytest.approx(2 * 11 / 1024)
+    assert evidence.mcnemar_exact(1, 0) == 1.0
+
+
+def test_a_run_reports_its_mcnemar_p_value():
+    result = evaluate(run_lines(only_skill_passes(4)))
+    assert result["mcnemar_p"] == pytest.approx(2 / 16)
+    assert evaluate(run_lines(even))["mcnemar_p"] == 1.0
+
+
+def test_cost_per_pass_is_arm_cost_over_arm_passes():
+    lines = []
+    for task in TASKS:
+        for repeat in range(3):
+            lines.append(s(task, "tools", repeat, repeat < 2, cost=1.0))  # 2 of 3 pass, $3 per task
+            lines.append(s(task, TREATED, repeat, True, cost=0.5))  # 3 of 3 pass, $1.5 per task
+    result = evaluate(lines)
+    assert result["tools_cost_per_pass"] == pytest.approx(15 / 10)
+    assert result["treated_cost_per_pass"] == pytest.approx(7.5 / 15)
+
+
+def test_cost_per_pass_is_none_when_an_arm_passed_nothing_or_cost_is_missing():
+    lines = run_lines(lambda t, r: (False, True))
+    assert evaluate(lines)["tools_cost_per_pass"] is None
+    lines = run_lines(even)
+    for line in lines:
+        line["cost_usd"] = None
+    assert evaluate(lines)["tools_cost_per_pass"] is None
+
+
+def test_the_text_and_markdown_reports_show_both():
+    row = evaluate(run_lines(only_skill_passes(4)))
+    full = {**row, "run_results": [row], "ledger_ids": ["IMP-001"], "spend_usd": 1.0, "builds": [], "train_runs": 0,
+            "heldout_tasks": TASKS, "models": []}
+    text = evidence.render_row(SKILL, full)
+    assert "McNemar p" in text and "per pass" in text
+    md = evidence.render_markdown({"refused": None, "skills": {SKILL: full}})
+    assert "McNemar" in md and "Cost per pass" in md

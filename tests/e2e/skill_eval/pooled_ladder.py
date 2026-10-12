@@ -14,7 +14,7 @@ import json
 import sys
 from collections import defaultdict
 
-from tests.e2e.skill_eval.evidence import bootstrap_interval
+from tests.e2e.skill_eval.evidence import _cost_per_pass, bootstrap_interval, mcnemar_exact
 
 BASE, TREATED = "tools", "tools+skills"
 
@@ -75,6 +75,12 @@ def pool(paths) -> dict:
         "unscored": unscored,
         "b": sum(1 for _, t, s in pairs if s["passed"] and not t["passed"]),
         "c": sum(1 for _, t, s in pairs if t["passed"] and not s["passed"]),
+        "mcnemar_p": mcnemar_exact(
+            sum(1 for _, t, s in pairs if s["passed"] and not t["passed"]),
+            sum(1 for _, t, s in pairs if t["passed"] and not s["passed"]),
+        ),
+        "tools_cost_per_pass": _cost_per_pass([t for _, t, _ in pairs]),
+        "treated_cost_per_pass": _cost_per_pass([s for _, _, s in pairs]),
         "tools_passes": sum(1 for _, t, _ in pairs if t["passed"]),
         "treated_passes": sum(1 for _, _, s in pairs if s["passed"]),
         "lift": _mean(lifts) if lifts else None,
@@ -85,6 +91,10 @@ def pool(paths) -> dict:
         "skill_sessions": loaded,
         "skill_load_rate": loaded / len(treated) if treated else None,
     }
+
+
+def _usd(value) -> str:
+    return "n/a" if value is None else f"${value:.3f}"
 
 
 def render(r: dict) -> str:
@@ -103,6 +113,10 @@ def render(r: dict) -> str:
             f"  calls ratio {r['calls_ratio']:.2f}, cost ratio {r['cost_ratio']:.2f}"
             if r["calls_ratio"] and r["cost_ratio"]
             else "  ratios n/a",
+            f"  McNemar p {r['mcnemar_p']:.3f}; cost per pass: tools "
+            + _usd(r["tools_cost_per_pass"])
+            + ", with skills "
+            + _usd(r["treated_cost_per_pass"]),
             f"  {r['skill_sessions']} of {r['treated_sessions']} tools+skills sessions ({rate}) loaded a skill",
         ]
     )
