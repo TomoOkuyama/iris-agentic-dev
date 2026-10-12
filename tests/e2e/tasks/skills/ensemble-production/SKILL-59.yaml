@@ -1,0 +1,80 @@
+id: SKILL-59
+prompt: |
+  Bench59.Mon in the BENCHMARK namespace reports a production's state as a word. Label(pState) takes
+  the state number that Ens.Director reports for the production in this namespace and returns one of
+  these five words: networkstopped, running, stopped, suspended, troubled. Current() returns the
+  label for the production state right now, and returns "stopped" when no production runs. Neither
+  method works today. Fix both. The production Bench59.Prod is there to try it with. Leave the class
+  compiled on the server, and leave no production running when you finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench59.Prod
+    content: |
+      Class Bench59.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench59.Prod">
+      </Production>
+      }
+
+      }
+  - name: Bench59.Mon
+    content: |
+      Class Bench59.Mon Extends %RegisteredObject
+      {
+
+      ClassMethod Label(pState As %Integer) As %String
+      {
+          Quit ""
+      }
+
+      ClassMethod Current() As %String
+      {
+          Quit ..Label(##class(Ens.Director).GetProductionState())
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) set l1=##class(Bench59.Mon).Label(1),l2=##class(Bench59.Mon).Label(2),l3=##class(Bench59.Mon).Label(3),l4=##class(Bench59.Mon).Label(4),l5=##class(Bench59.Mon).Label(5) set c1=##class(Bench59.Mon).Current() set s1=##class(Ens.Director).StartProduction("Bench59.Prod") set c2=##class(Bench59.Mon).Current() set s2=##class(Ens.Director).StopProduction(10,0) set c3=##class(Bench59.Mon).Current() set ok=(l1="running")&&(l2="stopped")&&(l3="suspended")&&(l4="troubled")&&(l5="networkstopped")&&(c1="stopped")&&(c2="running")&&(c3="stopped")&&$system.Status.IsOK(s1)&&$system.Status.IsOK(s2) } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench59.Prod
+    content: |
+      Class Bench59.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench59.Prod">
+      </Production>
+      }
+
+      }
+  - name: Bench59.Mon
+    content: |
+      Class Bench59.Mon Extends %RegisteredObject
+      {
+
+      ClassMethod Label(pState As %Integer) As %String
+      {
+          Quit $Case(pState, 1: "running", 2: "stopped", 3: "suspended", 4: "troubled", 5: "networkstopped", : "")
+      }
+
+      ClassMethod Current() As %String
+      {
+          Set tSC = ##class(Ens.Director).GetProductionStatus(.tName, .tState)
+          If $$$ISERR(tSC) { Quit "" }
+          Quit ..Label(tState)
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) } catch { }
+tags:
+  - production
+  - director
+  - status

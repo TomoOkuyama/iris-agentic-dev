@@ -118,6 +118,31 @@ judge_calls = true
 [try.env]
 PYTHONPATH = "."
 
+# iris-ai-hub held-out tasks (135): the AI Hub container, holdout side.
+[[try]]
+tasks = ["SKILL-62", "SKILL-63", "SKILL-64", "SKILL-65", "SKILL-66"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+
 [[try]]
 tasks = [
   "SKILL-01", "SKILL-04", "SKILL-06", "SKILL-07", "SKILL-08", "SKILL-10", "SKILL-11", "SKILL-12",
@@ -126,6 +151,8 @@ tasks = [
   "SKILL-36", "SKILL-37", "SKILL-38", "SKILL-39", "SKILL-40", "SKILL-41", "SKILL-42", "SKILL-43",
   "SKILL-44", "SKILL-45", "SKILL-46", "SKILL-47",
   "SKILL-48", "SKILL-49", "SKILL-50", "SKILL-51",
+  "SKILL-52", "SKILL-53", "SKILL-54", "SKILL-55", "SKILL-56", "SKILL-57", "SKILL-58", "SKILL-59",
+  "SKILL-60", "SKILL-61",
 ]
 command = [
   "python3", "-m", "tests.e2e.skill_eval.ladder",

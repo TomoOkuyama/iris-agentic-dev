@@ -1,0 +1,91 @@
+id: SKILL-54
+prompt: |
+  Bench54.SlugTest in the BENCHMARK namespace is meant to be the unit test for Bench54.Slug.Make. It
+  compiles, but nothing from it ever appears in the %UnitTest results, not a pass and not a failure.
+  Turn it into a unit test class whose tests run and report through %UnitTest, and fix
+  Bench54.Slug.Make if the tests show it is wrong. Keep the two test cases. Leave both classes
+  compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-unit-test
+fixtures:
+- name: Bench54.Slug
+  content: |
+    Class Bench54.Slug Extends %RegisteredObject
+    {
+
+    /// "Hello World" gives "hello-world". Runs of spaces count as one separator
+    /// and leading or trailing spaces are dropped.
+    ClassMethod Make(pTitle As %String) As %String
+    {
+        Quit $Translate($ZConvert(pTitle, "L"), " ", "-")
+    }
+
+    }
+- name: Bench54.SlugTest
+  content: |
+    Class Bench54.SlugTest Extends %RegisteredObject
+    {
+
+    Method TestSimple()
+    {
+        Set tGot = ##class(Bench54.Slug).Make("Hello World")
+        If tGot '= "hello-world" {
+            Write "FAIL TestSimple: ", tGot, !
+        }
+    }
+
+    Method TestSpaces()
+    {
+        Set tGot = ##class(Bench54.Slug).Make("  Hello   World ")
+        If tGot '= "hello-world" {
+            Write "FAIL TestSpaces: ", tGot, !
+        }
+    }
+
+    }
+check: |-
+  set io=$io try { set ok=0 if ((##class(Bench54.Slug).Make("Hello World")="hello-world")&&(##class(Bench54.Slug).Make("  Hello   World ")="hello-world")) { set root="/tmp/ut52/" do ##class(%File).CreateDirectoryChain(root_"Bench54/") set sc=$system.OBJ.ExportUDL("Bench54.SlugTest.cls",root_"Bench54/SlugTest.cls") set ^UnitTestRoot=root open "/dev/null":"W" use "/dev/null" do ##class(%UnitTest.Manager).RunTest("Bench54","/noload/nodelete") use io close "/dev/null" set idx=^UnitTest.Result,su=$order(^UnitTest.Result(idx,"")) set sn=0,sp=0,sa=999999,ss=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Bench54.SlugTest",m)) quit:m=""  set sn=sn+1,ss=ss_m_"," if +$list(^UnitTest.Result(idx,su,"Bench54.SlugTest",m),1) { set sp=sp+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Bench54.SlugTest",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Bench54.SlugTest",m,n),2),1,6)="Assert" { set na=na+1 } } if na<sa { set sa=na } } set ok=((sn>=2)&&(sp=sn)&&(sa>=1)) } } catch { use io try { close "/dev/null" } catch { } set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+- name: Bench54.Slug
+  content: |
+    Class Bench54.Slug Extends %RegisteredObject
+    {
+
+    /// "Hello World" gives "hello-world". Runs of spaces count as one separator
+    /// and leading or trailing spaces are dropped.
+    ClassMethod Make(pTitle As %String) As %String
+    {
+        Set tOut = ""
+        Set tWords = $ZStrip($ZConvert(pTitle, "L"), "<>W")
+        For i = 1:1:$Length(tWords, " ") {
+            Set tWord = $Piece(tWords, " ", i)
+            If tWord '= "" {
+                Set tOut = tOut _ $Select(tOut = "": "", 1: "-") _ tWord
+            }
+        }
+        Quit tOut
+    }
+
+    }
+- name: Bench54.SlugTest
+  content: |
+    Class Bench54.SlugTest Extends %UnitTest.TestCase
+    {
+
+    Method TestSimple()
+    {
+        Do $$$AssertEquals(##class(Bench54.Slug).Make("Hello World"), "hello-world", "simple")
+    }
+
+    Method TestSpaces()
+    {
+        Do $$$AssertEquals(##class(Bench54.Slug).Make("  Hello   World "), "hello-world", "extra spaces")
+    }
+
+    }
+tags:
+- unittest
+- extends
+- silent-skip

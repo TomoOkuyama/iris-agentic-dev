@@ -1,0 +1,92 @@
+id: SKILL-58
+prompt: |
+  Bench58.Ctl.Disable(pItem) in the BENCHMARK namespace turns off one business host of the running
+  production Bench58.Prod and must return an OK status. Today it restarts the whole production to do
+  that, and the other hosts lose their running state. Change it so the production keeps running, the
+  named host is disabled, the disabled host is no longer running, and the other hosts are not
+  restarted. Bench58.Hook is a test hook; do not change it. Leave the class compiled on the server, and
+  leave no production running when you finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench58.Host
+    content: |
+      Class Bench58.Host Extends Ens.BusinessOperation
+      {
+
+      Parameter INVOCATION = "Queue";
+
+      Method OnInit() As %Status
+      {
+          Set ^Bench58.Init(..%ConfigName) = $Get(^Bench58.Init(..%ConfigName)) + 1
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench58.Prod
+    content: |
+      Class Bench58.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench58.Prod">
+      <Item Name="Keeper" ClassName="Bench58.Host" PoolSize="1" Enabled="true"/>
+      <Item Name="Target" ClassName="Bench58.Host" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+  - name: Bench58.Hook
+    content: |
+      Class Bench58.Hook Extends %RegisteredObject
+      {
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench58.Init
+      }
+
+      ClassMethod Count(pName As %String) As %Integer
+      {
+          Quit +$Get(^Bench58.Init(pName))
+      }
+
+      }
+  - name: Bench58.Ctl
+    content: |
+      Class Bench58.Ctl Extends %RegisteredObject
+      {
+
+      ClassMethod Disable(pItem As %String) As %Status
+      {
+          Set tSC = ##class(Ens.Director).StopProduction(10, 0)
+          If $$$ISERR(tSC) { Quit tSC }
+          Set tSC = ##class(Ens.Director).EnableConfigItem(pItem, 0, 0)
+          If $$$ISERR(tSC) { Quit tSC }
+          Quit ##class(Ens.Director).StartProduction("Bench58.Prod")
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) do ##class(Ens.Director).EnableConfigItem("Target",1,0) do ##class(Bench58.Hook).Reset() set s1=##class(Ens.Director).StartProduction("Bench58.Prod") for i=1:1:50 { if (##class(Bench58.Hook).Count("Keeper")&&##class(Bench58.Hook).Count("Target")) { quit } hang 0.2 } set k1=##class(Bench58.Hook).Count("Keeper"),t1=##class(Bench58.Hook).Count("Target") set s2=##class(Bench58.Ctl).Disable("Target") set sc=##class(Ens.Director).GetProductionStatus(.n,.st) set k2=##class(Bench58.Hook).Count("Keeper") set en=##class(Ens.Director).IsItemEnabled("Target",.s3) set rs=##class(%ResultSet).%New("Ens.Job:Enumerate") do rs.Execute() while rs.Next() { set j(rs.Get("ConfigName"))=1 } set ok=$system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&(k1=1)&&(t1=1)&&(k2=1)&&(st=1)&&(n="Bench58.Prod")&&(en=0)&&'$data(j("Target"))&&$data(j("Keeper"))&&(##class(Ens.Director).IsItemEnabled("Keeper")=1) } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench58.Ctl
+    content: |
+      Class Bench58.Ctl Extends %RegisteredObject
+      {
+
+      ClassMethod Disable(pItem As %String) As %Status
+      {
+          Quit ##class(Ens.Director).EnableConfigItem(pItem, 0, 1)
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) do ##class(Ens.Director).EnableConfigItem("Target",1,0) } catch { }
+tags:
+  - production
+  - director
+  - hot-update

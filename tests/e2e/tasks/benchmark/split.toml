@@ -67,6 +67,19 @@
 #   `iris-sql`: a column named with a reserved word, a prefix search whose prefix holds `_` or `%`,
 #   the row count of a bulk UPDATE, and an upsert on a unique key. SKILL-11 (DDL) is the fifth.
 #
+# - **SKILL-52 to SKILL-61 are holdout from the day they were written (135, 2026-10-12).** SKILL-52 to
+#   SKILL-56 measure `objectscript-unit-test` (a test class named by the skill's convention, `Test*` name
+#   and `%UnitTest.TestCase` rules, scaffold placeholders); SKILL-57 to SKILL-61 measure
+#   `ensemble-production` (an up-check that is not `GetActiveProductionName`, a hot disable of one host, the
+#   five production states, adapter against host settings, driving a service with `CreateBusinessService`).
+#   The ensemble tasks need `%EnsembleMgr.EnableNamespace("BENCHMARK",1)` on the container first.
+#
+# - **SKILL-62 to SKILL-66 are holdout from the day they were written (135, 2026-10-12).** They measure
+#   `iris-ai-hub` on iad-aihub-iris (build 154), which lost its holdout when SKILL-24 and SKILL-25 were read:
+#   a one-entry XData policy that loads empty, `%CanExecute`'s bare-name argument, the `StreamChat` callback
+#   class, a ToolSet query's parameters and `MaxRows`, and `AddDocument` with and without a `source`. None
+#   makes an LLM call.
+#
 # One caveat that the split cannot fix and the report has to carry instead: I wrote the 42 corpus
 # tasks knowing what iad's 81 tools can do. Authoring is not tuning — no description, prompt or skill
 # was changed while looking at a result from these tasks — but a corpus written by the tool author is
@@ -177,4 +190,19 @@ holdout = [
   "SKILL-49",
   "SKILL-50",
   "SKILL-51",
+  "SKILL-52",
+  "SKILL-53",
+  "SKILL-54",
+  "SKILL-55",
+  "SKILL-56",
+  "SKILL-57",
+  "SKILL-58",
+  "SKILL-59",
+  "SKILL-60",
+  "SKILL-61",
+  "SKILL-62",
+  "SKILL-63",
+  "SKILL-64",
+  "SKILL-65",
+  "SKILL-66",
 ]

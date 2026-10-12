@@ -1,0 +1,66 @@
+id: SKILL-57
+prompt: |
+  Bench57.Watch.IsUp(pName) in the BENCHMARK namespace must return 1 when the production pName is
+  running in this namespace and 0 when it is not: it was stopped, or it was never started. Today it answers 1 for a production that has been
+  stopped. Fix IsUp. The production Bench57.Prod is there to try it with. Leave the class compiled on
+  the server, and leave no production running when you finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench57.Prod
+    content: |
+      Class Bench57.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench57.Prod">
+      </Production>
+      }
+
+      }
+  - name: Bench57.Watch
+    content: |
+      Class Bench57.Watch Extends %RegisteredObject
+      {
+
+      ClassMethod IsUp(pName As %String) As %Boolean
+      {
+          Quit (##class(Ens.Director).GetActiveProductionName() = pName)
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) set s1=##class(Ens.Director).StartProduction("Bench57.Prod") set a=##class(Bench57.Watch).IsUp("Bench57.Prod") set s2=##class(Ens.Director).StopProduction(10,0) set c=##class(Bench57.Watch).IsUp("Bench57.Prod") set ok=($system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&(a=1)&&(c=0)) } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench57.Prod
+    content: |
+      Class Bench57.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench57.Prod">
+      </Production>
+      }
+
+      }
+  - name: Bench57.Watch
+    content: |
+      Class Bench57.Watch Extends %RegisteredObject
+      {
+
+      ClassMethod IsUp(pName As %String) As %Boolean
+      {
+          Quit ''##class(Ens.Director).IsProductionRunning(pName)
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) } catch { }
+tags:
+  - production
+  - director
+  - status

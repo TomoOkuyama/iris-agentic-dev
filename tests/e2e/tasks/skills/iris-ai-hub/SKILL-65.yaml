@@ -1,0 +1,63 @@
+id: SKILL-65
+prompt: |
+  In the USER namespace, IadAihub135.Q65.ToolSet is meant to give an AI Hub agent one tool, ListTables,
+  that lists the table names of a schema (INFORMATION_SCHEMA.TABLES) whose name is at least minLen
+  characters long. The schema argument is required and minLen is optional (an integer, 0 when left out).
+  At most 3 rows may come back from one call, and the result must say when more rows existed than were
+  returned. The tool set as written does not compile. Fix it, keeping the tool name ListTables. Leave
+  the class compiled on the server. No LLM call is needed and none will be made.
+
+  IRIS: host localhost, web port 52781, username _SYSTEM, password SYS, namespace USER.
+  The instance runs in the Docker container iad-aihub-iris (IRIS 2026.3.0AI build 154, with AI Hub).
+skill: iris-ai-hub
+namespace: USER
+fixtures:
+  - name: IadAihub135.Q65.ToolSet
+    content: |
+      /// Tools for browsing the tables of a schema.
+      Class IadAihub135.Q65.ToolSet Extends %AI.ToolSet
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q65">
+        <Description>Browse tables</Description>
+        <Query Name="ListTables" Description="List the tables of one schema." Arguments="schema As %String, minLen As %Integer">
+          <![CDATA[
+            SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = ? AND LENGTH(TABLE_NAME) >= ?
+          ]]>
+        </Query>
+      </ToolSet>
+      }
+
+      }
+check: |
+  try { set ok=0, m=##class(%AI.ToolMgr).%New() do m.AddTool(##class(IadAihub135.Q65.ToolSet).%New()) set d=m.%Discover(), tl="", it=d.%GetIterator() while it.%GetNext(,.t) { if t.name="ListTables" { set tl=t } } set p=tl.parameters, r=m.ExecuteTool("ListTables",{"schema":"INFORMATION_SCHEMA"}).value, r2=m.ExecuteTool("ListTables",{"schema":"INFORMATION_SCHEMA","minLen":1000}).value set ok=(p.properties.schema.type="string")&&(p.properties.minLen.type="integer")&&(p.required.%Size()=1)&&(p.required.%Get(0)="schema")&&(r."row_count"=3)&&(r.truncated=1)&&(r2."row_count"=0)&&(r2.truncated=0) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: IadAihub135.Q65.ToolSet
+    content: |
+      /// Tools for browsing the tables of a schema.
+      Class IadAihub135.Q65.ToolSet Extends %AI.ToolSet
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q65">
+        <Description>Browse tables</Description>
+        <Query Name="ListTables" Description="List the tables of one schema." Arguments="schema As %String, minLen As %Integer = 0" MaxRows="3">
+          <![CDATA[
+            SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = :schema AND LENGTH(TABLE_NAME) >= :minLen
+          ]]>
+        </Query>
+      </ToolSet>
+      }
+
+      }
+teardown: |
+  do ##class(%ConfigStore.Configuration).Delete("AI.LLM.IadAihub135Q62"), ##class(%Wallet.KeyValue).Delete("IadAihub135.Q62") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag"), ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") new $namespace set $namespace="%SYS" if ##class(Security.Applications).Exists("/mcp/iadaihub135") { set sc=##class(Security.Applications).Delete("/mcp/iadaihub135") throw:$system.Status.IsError(sc) ##class(%Exception.StatusException).CreateFromStatus(sc) } write "teardown done"
+tags:
+  - ai-hub
+  - tool-set
+  - query

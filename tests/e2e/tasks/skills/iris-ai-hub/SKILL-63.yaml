@@ -1,0 +1,155 @@
+id: SKILL-63
+prompt: |
+  In the USER namespace, IadAihub135.Q63.Setup.Manager() returns a tool manager holding the tools
+  Reverse and Shout, with IadAihub135.Q63.Gate set as its authorization policy. The gate is meant to
+  refuse Reverse ("Reverse is not allowed") and let every other tool run, but ExecuteTool fails for
+  Shout as well, and Reverse is not refused with that message. Fix the gate. Leave the classes compiled on
+  the server. No LLM call is needed and none will be made.
+
+  IRIS: host localhost, web port 52781, username _SYSTEM, password SYS, namespace USER.
+  The instance runs in the Docker container iad-aihub-iris (IRIS 2026.3.0AI build 154, with AI Hub).
+skill: iris-ai-hub
+namespace: USER
+fixtures:
+  - name: IadAihub135.Q63.Tool
+    content: |
+      Class IadAihub135.Q63.Tool Extends %AI.Tool
+      {
+
+      /// Return the text reversed.
+      /// text: the string to reverse
+      ClassMethod Reverse(text As %String) As %String
+      {
+          Return $Reverse(text)
+      }
+
+      /// Return the text in upper case.
+      /// text: the string to shout
+      ClassMethod Shout(text As %String) As %String
+      {
+          Return $ZConvert(text, "U")
+      }
+
+      }
+  - name: IadAihub135.Q63.ToolSet
+    content: |
+      Class IadAihub135.Q63.ToolSet Extends %AI.ToolSet [ DependsOn = IadAihub135.Q63.Tool ]
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q63">
+        <Include Class="IadAihub135.Q63.Tool" />
+      </ToolSet>
+      }
+
+      }
+  - name: IadAihub135.Q63.Gate
+    content: |
+      Include %AI
+
+      /// Authorization policy: Reverse is not allowed, every other tool is.
+      Class IadAihub135.Q63.Gate Extends %AI.Policy.Authorization
+      {
+
+      Method %CanExecute(toolref As %String, call As %DynamicObject, metadata As %DynamicObject) As %Status
+      {
+          Set tSC = $$$OK
+          Set tSpec = {}.%FromJSON(toolref)
+          If tSpec.name = "Reverse" {
+              Set tSC = $$$ERROR($$$AICoreToolAccessDenied, "Reverse is not allowed")
+          }
+          Quit tSC
+      }
+
+      }
+  - name: IadAihub135.Q63.Setup
+    content: |
+      Class IadAihub135.Q63.Setup Extends %RegisteredObject [ DependsOn = (IadAihub135.Q63.ToolSet, IadAihub135.Q63.Gate) ]
+      {
+
+      /// A tool manager holding the tool set, with IadAihub135.Q63.Gate as its authorization policy.
+      ClassMethod Manager() As %AI.ToolMgr
+      {
+          Set tMgr = ##class(%AI.ToolMgr).%New()
+          Do tMgr.AddTool(##class(IadAihub135.Q63.ToolSet).%New())
+          Do tMgr.SetAuthPolicy(##class(IadAihub135.Q63.Gate).%New())
+          Quit tMgr
+      }
+
+      }
+check: |
+  try { set ok=0, m=##class(IadAihub135.Q63.Setup).Manager() set denied=0 try { set r=m.ExecuteTool("Reverse",{"text":"abc"}) } catch e { set denied=(e.DisplayString()["Reverse is not allowed") } set s="" try { set s=m.ExecuteTool("Shout",{"text":"abc"}) } catch e2 { set s="" } set ok=denied&&$isobject(s)&&(s.value="ABC") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: IadAihub135.Q63.Tool
+    content: |
+      Class IadAihub135.Q63.Tool Extends %AI.Tool
+      {
+
+      /// Return the text reversed.
+      /// text: the string to reverse
+      ClassMethod Reverse(text As %String) As %String
+      {
+          Return $Reverse(text)
+      }
+
+      /// Return the text in upper case.
+      /// text: the string to shout
+      ClassMethod Shout(text As %String) As %String
+      {
+          Return $ZConvert(text, "U")
+      }
+
+      }
+  - name: IadAihub135.Q63.ToolSet
+    content: |
+      Class IadAihub135.Q63.ToolSet Extends %AI.ToolSet [ DependsOn = IadAihub135.Q63.Tool ]
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q63">
+        <Include Class="IadAihub135.Q63.Tool" />
+      </ToolSet>
+      }
+
+      }
+  - name: IadAihub135.Q63.Gate
+    content: |
+      Include %AI
+
+      /// Authorization policy: Reverse is not allowed, every other tool is.
+      Class IadAihub135.Q63.Gate Extends %AI.Policy.Authorization
+      {
+
+      Method %CanExecute(toolref As %String, call As %DynamicObject, metadata As %DynamicObject) As %Status
+      {
+          Set tSC = $$$OK
+          If call.name = "Reverse" {
+              Set tSC = $$$ERROR($$$AICoreToolAccessDenied, "Reverse is not allowed")
+          }
+          Quit tSC
+      }
+
+      }
+  - name: IadAihub135.Q63.Setup
+    content: |
+      Class IadAihub135.Q63.Setup Extends %RegisteredObject [ DependsOn = (IadAihub135.Q63.ToolSet, IadAihub135.Q63.Gate) ]
+      {
+
+      /// A tool manager holding the tool set, with IadAihub135.Q63.Gate as its authorization policy.
+      ClassMethod Manager() As %AI.ToolMgr
+      {
+          Set tMgr = ##class(%AI.ToolMgr).%New()
+          Do tMgr.AddTool(##class(IadAihub135.Q63.ToolSet).%New())
+          Do tMgr.SetAuthPolicy(##class(IadAihub135.Q63.Gate).%New())
+          Quit tMgr
+      }
+
+      }
+teardown: |
+  do ##class(%ConfigStore.Configuration).Delete("AI.LLM.IadAihub135Q62"), ##class(%Wallet.KeyValue).Delete("IadAihub135.Q62") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag"), ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") new $namespace set $namespace="%SYS" if ##class(Security.Applications).Exists("/mcp/iadaihub135") { set sc=##class(Security.Applications).Delete("/mcp/iadaihub135") throw:$system.Status.IsError(sc) ##class(%Exception.StatusException).CreateFromStatus(sc) } write "teardown done"
+tags:
+  - ai-hub
+  - policy
+  - authorization

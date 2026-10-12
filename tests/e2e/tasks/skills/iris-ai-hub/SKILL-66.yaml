@@ -1,0 +1,86 @@
+id: SKILL-66
+prompt: |
+  In the USER namespace, IadAihub135.Q66.Loader.Load(docs) fills an AI Hub knowledge base (FastEmbed
+  embeddings, vector store table IadAihub135.Q66Rag) from an array of [name, text] pairs. It is meant to be
+  safe to run again: loading the same documents twice must leave one copy of each, and loading a newer
+  text for a name must replace the old text for that name. As written every run adds the documents
+  again. Fix Load. Leave the class compiled on the server. No LLM call is needed and none will be made.
+
+  IRIS: host localhost, web port 52781, username _SYSTEM, password SYS, namespace USER.
+  The instance runs in the Docker container iad-aihub-iris (IRIS 2026.3.0AI build 154, with AI Hub).
+skill: iris-ai-hub
+namespace: USER
+fixtures:
+  - name: IadAihub135.Q66.Loader
+    content: |
+      /// Loads documents into a FastEmbed knowledge base kept in the table IadAihub135.Q66Rag.
+      Class IadAihub135.Q66.Loader Extends %RegisteredObject
+      {
+
+      /// docs is an array of [name, text] pairs. Safe to call again with the same or newer texts.
+      ClassMethod Load(docs As %DynamicArray) As %Status
+      {
+          Set tSC = $$$OK
+          Try {
+              Set tEmb = ##class(%AI.RAG.Embedding.FastEmbed).Create()
+              Set tVS = ##class(%AI.RAG.VectorStore.IRIS).%New()
+              Set tVS.TableName = "IadAihub135.Q66Rag"
+              Set tVS.Dimensions = 384
+              Set tVS.ModelName = "AllMiniLML6V2"
+              $$$ThrowOnError(tVS.Build())
+              Set tKB = ##class(%AI.RAG.KnowledgeBase).%New()
+              Set tKB.Name = "iadaihub135docs"
+              Set tKB.Description = "Q66 documents"
+              $$$ThrowOnError(tKB.Build(tEmb, tVS))
+              Set tIt = docs.%GetIterator()
+              While tIt.%GetNext(.k, .tDoc) {
+                  $$$ThrowOnError(tKB.AddDocument(tDoc.%Get(1), {"title":(tDoc.%Get(0))}))
+              }
+          } Catch ex {
+              Set tSC = ex.AsStatus()
+          }
+          Quit tSC
+      }
+
+      }
+check: |
+  try { set ok=0 try { do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") } catch {} set d1=[["a.txt","The job retries three times."],["b.txt","Webhooks are signed."],["c.txt","Reports run nightly."]], d2=[["a.txt","The job retries seven times."],["b.txt","Webhooks are signed."],["c.txt","Reports run nightly."]] set s1=##class(IadAihub135.Q66.Loader).Load(d1), s2=##class(IadAihub135.Q66.Loader).Load(d1), n1=0, n2=0, n3=0 set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM IadAihub135.Q66Rag") if rs.%Next() { set n1=rs.%GetData(1) } set s3=##class(IadAihub135.Q66.Loader).Load(d2) set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM IadAihub135.Q66Rag") if rs.%Next() { set n2=rs.%GetData(1) } set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM IadAihub135.Q66Rag WHERE text LIKE '%three%'") if rs.%Next() { set n3=rs.%GetData(1) } set ok=$system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&$system.Status.IsOK(s3)&&(n1=3)&&(n2=3)&&(n3=0) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: IadAihub135.Q66.Loader
+    content: |
+      /// Loads documents into a FastEmbed knowledge base kept in the table IadAihub135.Q66Rag.
+      Class IadAihub135.Q66.Loader Extends %RegisteredObject
+      {
+
+      /// docs is an array of [name, text] pairs. Safe to call again with the same or newer texts.
+      ClassMethod Load(docs As %DynamicArray) As %Status
+      {
+          Set tSC = $$$OK
+          Try {
+              Set tEmb = ##class(%AI.RAG.Embedding.FastEmbed).Create()
+              Set tVS = ##class(%AI.RAG.VectorStore.IRIS).%New()
+              Set tVS.TableName = "IadAihub135.Q66Rag"
+              Set tVS.Dimensions = 384
+              Set tVS.ModelName = "AllMiniLML6V2"
+              $$$ThrowOnError(tVS.Build())
+              Set tKB = ##class(%AI.RAG.KnowledgeBase).%New()
+              Set tKB.Name = "iadaihub135docs"
+              Set tKB.Description = "Q66 documents"
+              $$$ThrowOnError(tKB.Build(tEmb, tVS))
+              Set tIt = docs.%GetIterator()
+              While tIt.%GetNext(.k, .tDoc) {
+                  $$$ThrowOnError(tKB.AddDocument(tDoc.%Get(1), {"source":(tDoc.%Get(0))}))
+              }
+          } Catch ex {
+              Set tSC = ex.AsStatus()
+          }
+          Quit tSC
+      }
+
+      }
+teardown: |
+  do ##class(%ConfigStore.Configuration).Delete("AI.LLM.IadAihub135Q62"), ##class(%Wallet.KeyValue).Delete("IadAihub135.Q62") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag"), ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") new $namespace set $namespace="%SYS" if ##class(Security.Applications).Exists("/mcp/iadaihub135") { set sc=##class(Security.Applications).Delete("/mcp/iadaihub135") throw:$system.Status.IsError(sc) ##class(%Exception.StatusException).CreateFromStatus(sc) } write "teardown done"
+tags:
+  - ai-hub
+  - rag
+  - knowledge-base

@@ -214,6 +214,33 @@ studies. A Bonferroni threshold of 0.05 over seven skills is 0.007. At that thre
 pass, and the second list-patterns run (0.012) does not. The pre-registered replication rule, not the p-value,
 is what decides net positive here.
 
+## Held-out tasks for the three skills that had none
+
+`objectscript-unit-test`, `ensemble-production` and `iris-ai-hub` lost their held-out tasks when 130 and 132
+read them (SKILL-14, SKILL-16, SKILL-24, SKILL-25). Fifteen new tasks are registered on the holdout side:
+SKILL-52 to SKILL-56 (unit-test), SKILL-57 to SKILL-61 (ensemble-production) and SKILL-62 to SKILL-66
+(iris-ai-hub, on the AI Hub container, build 154, no LLM calls). Each check was run live: false against the
+stub, true against the reference solution, false against at least one plausible wrong answer. None of the
+three has been measured; this section is about the tasks.
+
+Writing them turned up defects in the skills and a precondition for the lanes. I made no edit to any skill:
+
+- **`ensemble-production`**: "Testing without the Management Portal" recommends `Ens.Director.SendRequestSync`,
+  which does not exist on 2026.2. `Ens.Director.IsProductionRunning(name)` ignores its argument and returns 1
+  whenever any production runs, though the skill describes it as "is this one running?". The claim that a
+  typed `OnRequest` is rejected at compile time did not reproduce, so no task rests on it. `EnableConfigItem`
+  acts on the last-started production, so tasks start their own.
+- **`objectscript-unit-test`**: `iris_test` finds a class only when its `.cls` file sits under `^UnitTestRoot`
+  on the server. On a fresh container it returns NO_TESTS_FOUND for a correct `Test*` class under every
+  pattern, so the skill's "a leading colon runs one class" holds only once that is set up. The unit-test
+  checks do not depend on it: each exports its classes, sets `^UnitTestRoot` and runs `%UnitTest.Manager`.
+- **Lane setup for `ensemble-production`**: the measuring container needs
+  `##class(%EnsembleMgr).EnableNamespace("BENCHMARK",1)` run in `%SYS` first. The earlier worker containers
+  lacked it, which is why SKILL-16 came out unscored there.
+- **Check limits**: SKILL-58's check cannot tell a hot update from a deferred one (an update flag of 0 also
+  passes); SKILL-61 accepts `%New("Svc")` followed by `ProcessInput` as an alternative; SKILL-52's naming
+  convention can be guessed without the skill, so its private-method requirement is the discriminating part.
+
 ## Budget
 
 Total measured spend $275.15 of $300: $237.69 on the gpt-4.1 study (IMP-0011 to IMP-0019) and $37.46 on the
@@ -236,9 +263,8 @@ under one $50 mark between them.
 - **`iris-sql` stopped** at 17 of 30 sessions with $18.90 left under its cap and about $30 of sessions
   owing. On the 6 usable pairs only tools passed in 3 and the skill arm used 1.9 times the calls. It
   is not a verdict.
-- **`objectscript-unit-test`, `ensemble-production`, `iris-ai-hub`** were not run. They need new
-  held-out tasks (their older tasks were read while editing the skills), and the budget did not
-  reach them.
+- **`objectscript-unit-test`, `ensemble-production`, `iris-ai-hub`** have not been measured. Their held-out
+  tasks (SKILL-52 to SKILL-66) are written and registered but no run has used them.
 - **No improvement cycle.** I made no edit to any skill in 135. No held-out run came close enough to
   the bar to justify spending on train tasks, and `objectscript-guardrails` was settled before 135.
 - **Quality criterion (2c)** was never available: no held-out task declares `quality_checks`.

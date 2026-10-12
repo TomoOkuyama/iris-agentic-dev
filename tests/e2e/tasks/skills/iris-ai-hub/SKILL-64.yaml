@@ -1,0 +1,68 @@
+id: SKILL-64
+prompt: |
+  In the USER namespace, IadAihub135.Q64.Collector is meant to be the streaming callback of an AI Hub
+  agent: the object passed to the agent's StreamChat so that each streamed delta is appended to its Text
+  property and the finished turn is kept in Message. As written it is not accepted as that callback by
+  this build's StreamChat. Fix the class so an agent can stream into it, keeping Text and Message as they
+  are. Leave the class compiled on the server. No LLM call is needed and none will be made.
+
+  IRIS: host localhost, web port 52781, username _SYSTEM, password SYS, namespace USER.
+  The instance runs in the Docker container iad-aihub-iris (IRIS 2026.3.0AI build 154, with AI Hub).
+skill: iris-ai-hub
+namespace: USER
+fixtures:
+  - name: IadAihub135.Q64.Collector
+    content: |
+      /// Collects what an agent streams: every delta in Text, the finished turn in Message.
+      Class IadAihub135.Q64.Collector Extends %RegisteredObject
+      {
+
+      Property Text As %String(MAXLEN = "");
+
+      Property Message As %String(MAXLEN = "");
+
+      /// One streamed delta.
+      Method OnChunk(chunk As %String)
+      {
+          Set ..Text = ..Text _ chunk
+      }
+
+      /// The finished turn.
+      Method OnMessage(content As %DynamicObject)
+      {
+          Set ..Message = content.%ToJSON()
+      }
+
+      }
+check: |
+  try { set ok=0, c=##class(IadAihub135.Q64.Collector).%New() do c.OnChunk("Hel"), c.OnChunk("lo") do c.OnMessage({"role":"assistant","content":"Hello"}) set ok=c.%IsA("%AI.Shell.StreamRenderer")&&(c.Text="Hello")&&(c.Message["Hello") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: IadAihub135.Q64.Collector
+    content: |
+      /// Collects what an agent streams: every delta in Text, the finished turn in Message.
+      Class IadAihub135.Q64.Collector Extends %AI.Shell.StreamRenderer
+      {
+
+      Property Text As %String(MAXLEN = "");
+
+      Property Message As %String(MAXLEN = "");
+
+      /// One streamed delta.
+      Method OnChunk(chunk As %String)
+      {
+          Set ..Text = ..Text _ chunk
+      }
+
+      /// The finished turn.
+      Method OnMessage(content As %DynamicObject)
+      {
+          Set ..Message = content.%ToJSON()
+      }
+
+      }
+teardown: |
+  do ##class(%ConfigStore.Configuration).Delete("AI.LLM.IadAihub135Q62"), ##class(%Wallet.KeyValue).Delete("IadAihub135.Q62") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag"), ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") new $namespace set $namespace="%SYS" if ##class(Security.Applications).Exists("/mcp/iadaihub135") { set sc=##class(Security.Applications).Delete("/mcp/iadaihub135") throw:$system.Status.IsError(sc) ##class(%Exception.StatusException).CreateFromStatus(sc) } write "teardown done"
+tags:
+  - ai-hub
+  - agent
+  - streaming

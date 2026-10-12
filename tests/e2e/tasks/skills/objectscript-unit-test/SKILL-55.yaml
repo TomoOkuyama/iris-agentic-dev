@@ -1,0 +1,117 @@
+id: SKILL-55
+prompt: |
+  Test.Bench55.Fmt in the BENCHMARK namespace is a generated scaffold for Bench55.Fmt. It compiles,
+  but its placeholder assertions fail when it runs. Replace the placeholders with real expected values
+  taken from the documented behaviour in the comments on Bench55.Fmt, keep the three test methods,
+  and add a test for the case that Check is documented to reject. If Bench55.Fmt does not do what its
+  comments say, fix Bench55.Fmt. Leave both classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-unit-test
+fixtures:
+- name: Bench55.Fmt
+  content: |
+    Class Bench55.Fmt Extends %RegisteredObject
+    {
+
+    /// 1234 gives "$12.34" and 5 gives "$0.05".
+    ClassMethod Money(pCents As %Integer) As %String
+    {
+        Quit "$" _ (pCents \ 100) _ "." _ (pCents # 100)
+    }
+
+    /// 0.456 gives "46%".
+    ClassMethod Percent(pRatio As %Numeric) As %String
+    {
+        Quit $FNumber(pRatio * 100, "", 0) _ "%"
+    }
+
+    /// An empty string is an error status. Anything else is OK.
+    ClassMethod Check(pText As %String) As %Status
+    {
+        Quit $$$OK
+    }
+
+    }
+- name: Test.Bench55.Fmt
+  content: |
+    Class Test.Bench55.Fmt Extends %UnitTest.TestCase
+    {
+
+    Method TestMoney()
+    {
+        Set tResult = ##class(Bench55.Fmt).Money(1234)
+        Do $$$AssertEquals(tResult, "", "Money should return expected value")
+    }
+
+    Method TestPercent()
+    {
+        Set tResult = ##class(Bench55.Fmt).Percent(0.456)
+        Do $$$AssertEquals(tResult, "", "Percent should return expected value")
+    }
+
+    Method TestCheck()
+    {
+        Set tSC = ##class(Bench55.Fmt).Check("abc")
+        Do $$$AssertStatusOK(tSC, "Check should succeed")
+    }
+
+    }
+check: |-
+  set io=$io try { set ok=0 if ((##class(Bench55.Fmt).Money(1234)="$12.34")&&(##class(Bench55.Fmt).Money(5)="$0.05")&&(##class(Bench55.Fmt).Percent(0.456)="46%")&&($system.Status.IsOK(##class(Bench55.Fmt).Check("abc")))&&($system.Status.IsError(##class(Bench55.Fmt).Check("")))) { set root="/tmp/ut52/" do ##class(%File).CreateDirectoryChain(root_"Test/Bench55/") set sc=$system.OBJ.ExportUDL("Test.Bench55.Fmt.cls",root_"Test/Bench55/Fmt.cls") set ^UnitTestRoot=root open "/dev/null":"W" use "/dev/null" do ##class(%UnitTest.Manager).RunTest("Test.Bench55","/noload/nodelete") use io close "/dev/null" set idx=^UnitTest.Result,su=$order(^UnitTest.Result(idx,"")) set fn=0,fp=0,fa=999999,fs=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Test.Bench55.Fmt",m)) quit:m=""  set fn=fn+1,fs=fs_m_"," if +$list(^UnitTest.Result(idx,su,"Test.Bench55.Fmt",m),1) { set fp=fp+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Test.Bench55.Fmt",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Test.Bench55.Fmt",m,n),2),1,6)="Assert" { set na=na+1 } } if na<fa { set fa=na } } set ok=((fn>=3)&&(fp=fn)&&(fa>=1)&&$find(fs,",TestMoney,")&&$find(fs,",TestPercent,")&&$find(fs,",TestCheck,")) } } catch { use io try { close "/dev/null" } catch { } set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+- name: Bench55.Fmt
+  content: |
+    Class Bench55.Fmt Extends %RegisteredObject
+    {
+
+    /// 1234 gives "$12.34" and 5 gives "$0.05".
+    ClassMethod Money(pCents As %Integer) As %String
+    {
+        Quit "$" _ (pCents \ 100) _ "." _ $Extract(100 + (pCents # 100), 2, 3)
+    }
+
+    /// 0.456 gives "46%".
+    ClassMethod Percent(pRatio As %Numeric) As %String
+    {
+        Quit $FNumber(pRatio * 100, "", 0) _ "%"
+    }
+
+    /// An empty string is an error status. Anything else is OK.
+    ClassMethod Check(pText As %String) As %Status
+    {
+        If pText = "" Quit $$$ERROR($$$GeneralError, "empty text")
+        Quit $$$OK
+    }
+
+    }
+- name: Test.Bench55.Fmt
+  content: |
+    Class Test.Bench55.Fmt Extends %UnitTest.TestCase
+    {
+
+    Method TestMoney()
+    {
+        Set tResult = ##class(Bench55.Fmt).Money(1234)
+        Do $$$AssertEquals(tResult, "$12.34", "Money should return expected value")
+    }
+
+    Method TestPercent()
+    {
+        Set tResult = ##class(Bench55.Fmt).Percent(0.456)
+        Do $$$AssertEquals(tResult, "46%", "Percent should return expected value")
+    }
+
+    Method TestCheck()
+    {
+        Set tSC = ##class(Bench55.Fmt).Check("abc")
+        Do $$$AssertStatusOK(tSC, "Check should succeed")
+        Do $$$AssertStatusNotOK(##class(Bench55.Fmt).Check(""), "empty text is rejected")
+    }
+
+    }
+tags:
+- unittest
+- assertions
+- status
