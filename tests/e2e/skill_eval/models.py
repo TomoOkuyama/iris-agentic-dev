@@ -100,17 +100,7 @@ def provider_block(model: str, api_key: str, effort: str | None = None) -> dict:
         }
         if effort:
             entry["options"] = {"reasoningEffort": effort}
-        return {
-            "bedrock-oai": {
-                "npm": "@ai-sdk/openai",
-                "name": "Bedrock OpenAI",
-                "options": {
-                    "baseURL": BEDROCK_OPENAI_URL,
-                    "apiKey": "{env:AWS_BEARER_TOKEN_BEDROCK}",
-                },
-                "models": {model_id: entry},
-            }
-        }
+        return _bedrock_provider(provider, "@ai-sdk/openai", "Bedrock OpenAI", model_id, entry)
     if provider == "bedrock-compat":
         prices = COMPAT_PRICES.get(model_id)
         if prices is None:
@@ -122,26 +112,31 @@ def provider_block(model: str, api_key: str, effort: str | None = None) -> dict:
                 "effort is not wired for the chat-completions route, so the run would be labelled "
                 "with a setting it did not use"
             )
-        return {
-            "bedrock-compat": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "Bedrock chat completions",
-                "options": {
-                    "baseURL": BEDROCK_OPENAI_URL,
-                    "apiKey": "{env:AWS_BEARER_TOKEN_BEDROCK}",
-                },
-                "models": {
-                    model_id: {
-                        "name": model_id,
-                        "tool_call": True,
-                        "reasoning": True,
-                        "limit": {"context": 128000, "output": 16000},
-                        "cost": dict(prices),
-                    }
-                },
-            }
+        entry = {
+            "name": model_id,
+            "tool_call": True,
+            "reasoning": True,
+            "limit": {"context": 128000, "output": 16000},
+            "cost": dict(prices),
         }
+        return _bedrock_provider(
+            provider, "@ai-sdk/openai-compatible", "Bedrock chat completions", model_id, entry
+        )
     raise UnknownModel(f"{model!r} names a provider this harness cannot reach")
+
+
+def _bedrock_provider(provider: str, npm: str, name: str, model_id: str, entry: dict) -> dict:
+    return {
+        provider: {
+            "npm": npm,
+            "name": name,
+            "options": {
+                "baseURL": BEDROCK_OPENAI_URL,
+                "apiKey": "{env:AWS_BEARER_TOKEN_BEDROCK}",
+            },
+            "models": {model_id: entry},
+        }
+    }
 
 
 DEFAULT_PORT = "52780"

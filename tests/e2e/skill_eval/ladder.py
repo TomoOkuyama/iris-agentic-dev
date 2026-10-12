@@ -55,9 +55,10 @@ RESULTS_DIR = os.path.join(
 
 #: The model every arm runs, held here rather than passed per arm: the arms are comparable to each
 #: other because the model was the same in all of them.
+LADDER_MODEL = "openai/gpt-4.1"
+
 #: How many more times a session is run when the iad server never answered in it.
 SERVER_RETRIES = 2
-LADDER_MODEL = "openai/gpt-4.1"
 
 #: The same clock in every arm. A killed session counts as a failure — the task was not solved — and
 #: `solve_time` records how often that happened so the figure can be read as what it is.
@@ -622,11 +623,11 @@ def server_was_dead(run) -> bool:
     return run.passed is None and "never answered" in (run.reason or "")
 
 
-def print_run(run, cost: float, retry: bool = False) -> None:
+def print_run(run, retry: bool = False) -> None:
     print(
         f"{run.task_id:<12} {run.arm:<34} "
         f"{'—' if run.passed is None else ('PASS' if run.passed else 'FAIL'):<5} "
-        f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${cost:.2f}"
+        f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${run.cost_usd:.2f}"
         + ("  TIMEOUT" if run.timed_out else "")
         + (
             ""
@@ -736,9 +737,9 @@ def run_ladder(
                         break
                     # The session ran without its tools, which says nothing about the arm: run it again.
                     # Its cost is still printed, so the ledger's spend counts it.
-                    print_run(run, cost, retry=True)
+                    print_run(run, retry=True)
                 runs.append(run)
-                print_run(run, cost)
+                print_run(run)
                 if on_run is not None:
                     on_run(run)
                 if run.skill_loaded is not None:

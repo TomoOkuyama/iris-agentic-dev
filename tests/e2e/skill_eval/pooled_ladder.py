@@ -14,7 +14,7 @@ import json
 import sys
 from collections import defaultdict
 
-from tests.e2e.skill_eval.evidence import _cost_per_pass, bootstrap_interval, mcnemar_exact
+from tests.e2e.skill_eval.evidence import _cost_per_pass, _mean, _usd, bootstrap_interval, mcnemar_exact
 
 BASE, TREATED = "tools", "tools+skills"
 
@@ -29,10 +29,6 @@ def _lines(paths):
             for raw in handle:
                 if raw.strip():
                     yield json.loads(raw)
-
-
-def _mean(xs):
-    return sum(xs) / len(xs)
 
 
 def pool(paths) -> dict:
@@ -67,18 +63,17 @@ def pool(paths) -> dict:
     tools_calls = sum(t["tool_calls"] for _, t, _ in pairs)
     tools_cost = sum(t.get("cost_usd") or 0 for _, t, _ in pairs)
     model, effort = next(iter(models)) if models else (None, None)
+    b = sum(1 for _, t, s in pairs if s["passed"] and not t["passed"])
+    c = sum(1 for _, t, s in pairs if t["passed"] and not s["passed"])
     return {
         "model": model,
         "effort": effort,
         "pairs": len(pairs),
         "tasks": len(by_task),
         "unscored": unscored,
-        "b": sum(1 for _, t, s in pairs if s["passed"] and not t["passed"]),
-        "c": sum(1 for _, t, s in pairs if t["passed"] and not s["passed"]),
-        "mcnemar_p": mcnemar_exact(
-            sum(1 for _, t, s in pairs if s["passed"] and not t["passed"]),
-            sum(1 for _, t, s in pairs if t["passed"] and not s["passed"]),
-        ),
+        "b": b,
+        "c": c,
+        "mcnemar_p": mcnemar_exact(b, c),
         "tools_cost_per_pass": _cost_per_pass([t for _, t, _ in pairs]),
         "treated_cost_per_pass": _cost_per_pass([s for _, _, s in pairs]),
         "tools_passes": sum(1 for _, t, _ in pairs if t["passed"]),
@@ -91,10 +86,6 @@ def pool(paths) -> dict:
         "skill_sessions": loaded,
         "skill_load_rate": loaded / len(treated) if treated else None,
     }
-
-
-def _usd(value) -> str:
-    return "n/a" if value is None else f"${value:.3f}"
 
 
 def render(r: dict) -> str:

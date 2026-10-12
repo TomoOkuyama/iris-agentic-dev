@@ -535,6 +535,11 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
         # Runs on different models (or efforts) are different studies: reported side by side,
         # never pooled and never one replicating the other.
         labels = [_model_label(lines) for _, lines in units]
+        voided_rows = [
+            {"id": e["id"], "reason": voided[e["id"]]}
+            for e in events
+            if e.get("event") == "measure" and e["id"] in voided and _subject(e) == skill
+        ]
         for label in dict.fromkeys(labels) or [None]:
             mine_here = [u for u, l in zip(units, labels) if l == label]
             key = skill if len(set(labels)) <= 1 else f"{skill} @ {label}"
@@ -544,19 +549,13 @@ def skills_report(events, *, criteria_path, heldout, task_skill=None, root=".") 
                 [e for events_, _ in mine_here for e in events_],
                 [u for u in mine_here if u[0][0].get("purpose") == "verdict"],
                 bool(report["refused"]),
-                [
-                    {"id": e["id"], "reason": voided[e["id"]]}
-                    for e in events
-                    if e.get("event") == "measure"
-                    and e["id"] in voided
-                    and _subject(e) == skill
-                ],
+                voided_rows,
             )
     return report
 
 
 def _model_label(lines) -> str:
-    models = {(m, e) for m, e in _models(lines)}
+    models = _models(lines)
     if len(models) != 1:
         return "mixed models" if models else "no sessions"
     model, effort = next(iter(models))
