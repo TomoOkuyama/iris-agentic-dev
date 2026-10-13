@@ -134,6 +134,7 @@ def test_the_profile_names_every_place_the_binary_can_send_data():
         "api.anthropic.com",
         "api.openai.com",
         "raw.githubusercontent.com",
+        "algolia.net",
         "IRIS_NO_SKILLS",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",

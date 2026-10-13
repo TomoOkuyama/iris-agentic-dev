@@ -14,16 +14,18 @@ in-memory log buffer and local files you configure.
 
 ## Data flow
 
-| From          | To                                      | When                                                                                      | What travels                                      |
-| ------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| the assistant | this process (stdio)                    | every tool call                                                                           | tool name and arguments                           |
-| this process  | the assistant (stdio)                   | every tool result                                                                         | whatever IRIS returned for that call              |
-| this process  | the configured IRIS instance            | every tool call that needs IRIS                                                           | the request, the configured username and password |
-| this process  | `raw.githubusercontent.com`             | only on `skill install`/community-skill commands you run                                  | a request for a public skill file; no IRIS data   |
-| this process  | `api.github.com`                        | only on package-manifest version resolution you run                                       | a public repository lookup; no IRIS data          |
-| this process  | `api.anthropic.com` or `api.openai.com` | only the code-generation tools, and only if `IRIS_GENERATE_CLASS_MODEL` and a key are set | the prompt for the generated class                |
+| From          | To                                                                    | When                                                                                      | What travels                                             |
+| ------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| the assistant | this process (stdio)                                                  | every tool call                                                                           | tool name and arguments                                  |
+| this process  | the assistant (stdio)                                                 | every tool result                                                                         | whatever IRIS returned for that call                     |
+| this process  | the configured IRIS instance                                          | every tool call that needs IRIS                                                           | the request, the configured username and password        |
+| this process  | `EP91R43SFK-dsn.algolia.net` (the docs.intersystems.com search index) | only `iris_doc_search`                                                                    | the search text the assistant wrote; no IRIS credentials |
+| this process  | `raw.githubusercontent.com`                                           | only on `skill install`/community-skill commands you run                                  | a request for a public skill file; no IRIS data          |
+| this process  | `api.github.com`                                                      | only on package-manifest version resolution you run                                       | a public repository lookup; no IRIS data                 |
+| this process  | `api.anthropic.com` or `api.openai.com`                               | only the code-generation tools, and only if `IRIS_GENERATE_CLASS_MODEL` and a key are set | the prompt for the generated class                       |
 
-I found no other outbound destination in the source. There is no telemetry upload and no update check. The
+I found no other outbound destination in the source. I first missed the documentation search above,
+because my search filtered out `docs.` hostnames, and the table now lists it. There is no telemetry upload and no update check. The
 `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` variables are read only by the code-generation tools; unset them and
 that route is closed. Skills are text files compiled into the binary.
 
@@ -39,7 +41,7 @@ block per connection. The server name is the one you gave the connection.
 ```toml
 [policy.prod-live]
 # Only the categories the task needs. No admin, no execute, no source_control.
-allow = ["compile", "search", "docs", "skill"]
+allow = ["compile", "search", "skill"]
 # live: the most restrictive template. dev is the default and is permissive.
 mcpTemplate = "live"
 # block: journal_search and iris_message_body, which return whole records, are refused.
@@ -52,6 +54,9 @@ irisAudit = true
 
 Also:
 
+- **Documentation search is outbound.** `iris_doc_search` sends text the model composed to a third-party
+  search service. It belongs to the `docs` category with `iris_doc`, `docs_introspect` and `iris_generate`, so
+  leaving `docs` out of `allow` closes it and also removes those tools. The example above leaves it out.
 - **Read-only mode.** Leave `IRIS_WRITE_TOOLS_ENABLED` unset or `false`. The destructive and admin tiers
   (`IRIS_DESTRUCTIVE_TOOLS_ENABLED`, `IRIS_ADMIN_TOOLS`) are off by default; leave them off.
 - **Least-privilege IRIS account.** Create an account whose roles cannot read the protected tables and
