@@ -34,12 +34,12 @@ Only the latest release receives security fixes. Releases are listed at
 
 Targets for a fix to be released, counted from the day I confirm the report. They are targets and not a guarantee:
 
-| Severity | Meaning                                                                                      | Target to release a fix |
-| -------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| Critical | Bypass of a safety gate or credential disclosure that needs no special access                 | 14 days                 |
-| High     | The same, but needs a configuration or access the attacker is unlikely to have                | 30 days                 |
-| Medium   | Hardening gaps and denial of service                                                          | the next release        |
-| Low      | Anything else                                                                                | best effort             |
+| Severity | Meaning                                                                        | Target to release a fix |
+| -------- | ------------------------------------------------------------------------------ | ----------------------- |
+| Critical | Bypass of a safety gate or credential disclosure that needs no special access  | 14 days                 |
+| High     | The same, but needs a configuration or access the attacker is unlikely to have | 30 days                 |
+| Medium   | Hardening gaps and denial of service                                           | the next release        |
+| Low      | Anything else                                                                  | best effort             |
 
 ## How you hear about a fix
 
@@ -63,10 +63,12 @@ compiler and clippy.
 
 ## Release integrity
 
-The Homebrew formula pins a SHA-256 for each binary. The published binaries are not signed with a publisher
-certificate (the macOS build carries an ad-hoc signature, and the Windows release binary is unsigned). To
-avoid trusting a download, build from source at a tagged release: `cargo build --locked --release -p
-iris-agentic-dev`.
+Each release attaches `SHA256SUMS` covering all five binaries. The Homebrew formula pins the same hashes.
+The published binaries are not signed with a publisher certificate: the macOS build carries an ad-hoc
+signature, and the Windows release binary is unsigned. A signing route for Windows exists in CI and is not yet
+part of the release. To avoid trusting a download, check it against `SHA256SUMS` from the same tagged release,
+or build from source: `cargo build --locked --release -p iris-agentic-dev`.
+See `docs/production-profile.md` for an install that pins a version and downloads nothing at run time.
 
 ## Running it against real data
 

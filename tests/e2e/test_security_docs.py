@@ -145,3 +145,51 @@ def test_the_profile_says_what_it_does_not_protect():
     text = read("docs", "production-profile.md").lower()
     for needle in ("iris_query", "no automatic redaction", "speed bump", "unsigned"):
         assert needle in text, needle
+
+
+# --- checksums and the no-download install -------------------------------------------------------------
+
+BINARIES = (
+    "iris-agentic-dev-linux-x86_64",
+    "iris-agentic-dev-linux-aarch64",
+    "iris-agentic-dev-macos-arm64",
+    "iris-agentic-dev-macos-x86_64",
+    "iris-agentic-dev-windows-x86_64.exe",
+)
+
+
+def _release_steps():
+    return _release()["jobs"]["release"]["steps"]
+
+
+def test_the_release_computes_sha256sums_over_every_binary_it_attaches():
+    steps = _release_steps()
+    sums = [s for s in steps if "sha256sum" in s.get("run", "") and "SHA256SUMS" in s.get("run", "")]
+    assert sums, "no step writes SHA256SUMS"
+    script = sums[0]["run"]
+    for name in BINARIES:
+        assert name in script, f"SHA256SUMS would leave out {name}"
+    order = [i for i, s in enumerate(steps) if s is sums[0] or "action-gh-release" in s.get("uses", "")]
+    assert order[0] == steps.index(sums[0]) < order[-1], "the sums must be written before the upload"
+
+
+def test_sha256sums_is_attached_to_the_release():
+    attached = " ".join(
+        str(step.get("with", {}).get("files", "")) for step in _release_steps()
+    )
+    assert "SHA256SUMS" in attached
+
+
+def test_security_md_does_not_send_readers_to_a_checksum_that_is_not_there():
+    text = read("SECURITY.md")
+    assert "SHA256SUMS" in text
+    assert "verify the SHA-256 against the release or Homebrew" not in " ".join(text.split())
+
+
+def test_the_profile_gives_a_pinned_install_with_a_check_and_no_download():
+    text = read("docs", "production-profile.md")
+    flat = " ".join(text.split())
+    assert "releases/download/v" in text and "releases/latest" in text, "pin a version, and say why not latest"
+    assert "sha256sum -c" in text
+    assert "iris-agentic-dev.serverPath" in text
+    assert "no download" in flat.lower()

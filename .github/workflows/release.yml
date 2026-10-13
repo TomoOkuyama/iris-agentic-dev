@@ -128,6 +128,12 @@ jobs:
 
           > The `.vsix` below is a fallback for air-gapped or pinned-version installs. Homebrew and manual binary install still work as before.
           EOF
+      - name: Write SHA256SUMS
+        run: |
+          sha256sum iris-agentic-dev-linux-x86_64 iris-agentic-dev-linux-aarch64 \
+            iris-agentic-dev-macos-arm64 iris-agentic-dev-macos-x86_64 \
+            iris-agentic-dev-windows-x86_64.exe > SHA256SUMS
+          cat SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -138,6 +144,7 @@ jobs:
             iris-agentic-dev-windows-x86_64.exe
             vscode-iris-agentic-dev-*.vsix
             iris-agentic-dev-*.cdx.json
+            SHA256SUMS
           generate_release_notes: true
           body_path: release-body.md
 

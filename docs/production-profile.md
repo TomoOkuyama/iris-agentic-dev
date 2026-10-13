@@ -80,6 +80,28 @@ Also:
 - **Binaries are unsigned.** The macOS build carries an ad-hoc signature and the Windows release binary
   carries none. Verify the SHA-256 against the release or Homebrew formula, or build from source at a tag.
 
+## Installing with a pinned version and no download
+
+Do not use `releases/latest`: it moves with every release, so what you reviewed is not what you run. Pin a
+tag, check the hash, and put the binary where only administrators can change it. Use the file for your
+platform; `linux-x86_64` is shown.
+
+```sh
+base=https://github.com/intersystems-community/iris-agentic-dev/releases/download/v1.5.0
+curl -fsSLO $base/iris-agentic-dev-linux-x86_64
+curl -fsSLO $base/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+install -m 0755 iris-agentic-dev-linux-x86_64 /opt/iris-agentic-dev/iris-agentic-dev
+```
+
+On Windows, compare `(Get-FileHash .\iris-agentic-dev-windows-x86_64.exe).Hash` with the line in `SHA256SUMS`.
+Where the host cannot reach GitHub, do the download and the check on another machine and copy the binary in.
+
+The VS Code extension downloads the binary on first activation only when no binary is found. Setting
+`iris-agentic-dev.serverPath` to the installed path, or having the binary on `PATH`, makes that a no download
+install: the extension runs what is there and fetches nothing. The setting is checked before the `PATH` lookup,
+and the managed download is the last resort.
+
 ## Evidence
 
 - Dependency scans and their results: `SECURITY.md`. The SBOM for each release is
