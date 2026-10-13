@@ -220,8 +220,8 @@ is what decides net positive here.
 read them (SKILL-14, SKILL-16, SKILL-24, SKILL-25). Fifteen new tasks are registered on the holdout side:
 SKILL-52 to SKILL-56 (unit-test), SKILL-57 to SKILL-61 (ensemble-production) and SKILL-62 to SKILL-66
 (iris-ai-hub, on the AI Hub container, build 154, no LLM calls). Each check was run live: false against the
-stub, true against the reference solution, false against at least one plausible wrong answer. None of the
-three has been measured; this section is about the tasks.
+stub, true against the reference solution, false against at least one plausible wrong answer. This
+section is about the tasks; the measurement is under the next heading.
 
 Writing them turned up defects in the skills and a precondition for the lanes. I made no edit to any skill:
 
@@ -241,9 +241,28 @@ Writing them turned up defects in the skills and a precondition for the lanes. I
   passes); SKILL-61 accepts `%New("Svc")` followed by `ProcessInput` as an alternative; SKILL-52's naming
   convention can be guessed without the skill, so its private-method requirement is the discriminating part.
 
+## The three new skills on gpt-oss-120b
+
+One held-out run each, 3 repeats, on build 1.5.0 `9c3273f`, same-run `tools` baseline. None is eligible:
+the skill was loaded in under 90% of treated sessions in every one, so the criteria give no verdict.
+Unloaded sessions are excluded and counted.
+
+| Skill                  | Ledger   | Spend | Pairs | b / c | Loaded | McNemar p | Calls ratio       | Cost per pass (tools / skill) | Verdict             |
+| ---------------------- | -------- | ----- | ----- | ----- | ------ | --------- | ----------------- | ----------------------------- | ------------------- |
+| objectscript-unit-test | IMP-0079 | $2.88 | 16    | 3 / 2 | 89%    | 1.000     | 0.81 [0.54, 1.07] | $0.282 / $0.207               | no verdict (loaded) |
+| ensemble-production    | IMP-0078 | $2.86 | 11    | 5 / 2 | 79%    | 0.453     | 1.64 [1.17, 1.81] | $0.225 / $0.234               | no verdict (loaded) |
+| iris-ai-hub            | IMP-0080 | $2.38 | 12    | 6 / 0 | 80%    | 0.031     | 1.23 [0.78, 2.67] | $0.439 / $0.148               | no verdict (loaded) |
+
+`iris-ai-hub` has the only suggestive number: 6 sessions where only the skill passed, none the other way,
+across 4 tasks (one short of the 5 the criteria require). With the loaded rate at 80% and about 25 tests in
+this report, p = 0.031 does not survive correction, and I did not run a replication to find out. `ensemble-production`
+costs more with the skill (calls ratio 1.64, interval above 1), consistent with the gpt-4.1 finding that a
+skill adds context. These three add no net-positive skill. Not replicated: the budget left ($16) would not
+cover three repeats of three skills.
+
 ## Budget
 
-Total measured spend $275.15 of $300: $237.69 on the gpt-4.1 study (IMP-0011 to IMP-0019) and $37.46 on the
+Total measured spend $283.57 of $300 ($275.15 before the three-skill runs, which cost $8.12): $237.69 on the gpt-4.1 study (IMP-0011 to IMP-0019) and $37.46 on the
 Bedrock studies from IMP-0047 on ($6.23 luna, including $2.80 for the four tools-ladder shards; $31.23 for the
 open-weight models, of which $0.41 is `gpt-oss-20b`). The ledger events hold every figure. For the gpt-4.1
 study: guardrails $54.59, query-plans $48.32, sql-patterns $42.27, agentic-dev $4.82, tdd $11.50,
