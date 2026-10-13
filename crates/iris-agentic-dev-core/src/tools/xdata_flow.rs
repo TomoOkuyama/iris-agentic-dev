@@ -213,9 +213,10 @@ fn read_cdata_content(reader: &mut Reader<&[u8]>) -> Result<String> {
                 content.push_str(&text);
             }
             Ok(Event::Text(ref t)) => {
-                let text = t.unescape().unwrap_or_default();
+                let text = t.decode().unwrap_or_default();
                 content.push_str(&text);
             }
+            Ok(Event::GeneralRef(ref r)) => content.push_str(&resolve_reference(r)),
             Ok(Event::End(ref e)) => {
                 let name_bytes = e.name().as_ref().to_vec();
                 let tag = String::from_utf8_lossy(&name_bytes);
@@ -325,6 +326,8 @@ pub fn extract_xdata_content(class_xml: &str, xdata_name: &str) -> Option<String
     // Accumulate across multiple CData/Text events — IRIS exports BPL/DTL with
     // nested CDATA sections (]]]]><![CDATA[>) that quick_xml splits into fragments.
     let mut accumulated = String::new();
+    // Whitespace between two references (`&gt; &amp;`) is content; whitespace between elements is not.
+    let mut after_ref = false;
 
     loop {
         match reader.read_event() {
@@ -344,10 +347,15 @@ pub fn extract_xdata_content(class_xml: &str, xdata_name: &str) -> Option<String
                 accumulated.push_str(&String::from_utf8_lossy(cd.as_ref()));
             }
             Ok(Event::Text(ref t)) if inside_data => {
-                let text = t.unescape().unwrap_or_default().to_string();
-                if !text.trim().is_empty() {
+                let text = t.decode().unwrap_or_default().to_string();
+                if after_ref || !text.trim().is_empty() {
                     accumulated.push_str(&text);
                 }
+                after_ref = false;
+            }
+            Ok(Event::GeneralRef(ref r)) if inside_data => {
+                accumulated.push_str(&resolve_reference(r));
+                after_ref = true;
             }
             Ok(Event::End(ref e)) => {
                 let tag = std::str::from_utf8(e.name().as_ref())
@@ -384,11 +392,24 @@ pub fn is_dtl_class(super_classes: &str) -> bool {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/// The text an entity or character reference stands for. quick-xml 0.41 emits `&lt;` and `&#65;` as their own
+/// events instead of resolving them inside Text, so a reader that skips them loses the character. An unknown
+/// entity resolves to nothing, as an unresolvable one did before.
+fn resolve_reference(r: &quick_xml::events::BytesRef) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    let name = r.decode().unwrap_or_default();
+    quick_xml::escape::resolve_predefined_entity(&name)
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn attr_value(e: &quick_xml::events::BytesStart, name: &str) -> String {
     e.attributes()
         .filter_map(|a| a.ok())
         .find(|a| a.key.as_ref().eq_ignore_ascii_case(name.as_bytes()))
-        .and_then(|a| a.unescape_value().ok())
+        .and_then(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok())
         .map(|v| v.to_string())
         .unwrap_or_default()
 }

@@ -344,3 +344,36 @@ fn t070_59_parse_bpl_end_at_depth_zero() {
     let flow = parse_bpl(xml).expect("parse_bpl failed");
     assert_eq!(flow.steps.len(), 1);
 }
+
+// ── quick-xml 0.41 hands an entity reference over as its own event ─────────────────────────────────
+//
+// 0.37 resolved `&lt;` and `&#65;` inside Text events; 0.41 emits them as separate GeneralRef events, so a
+// parser that only reads Text events silently drops the character. These pin that the text still arrives
+// whole.
+
+#[test]
+fn xdata_content_keeps_predefined_and_numeric_references() {
+    let xml = r#"<Export><Class name="Demo.Foo"><XData name="BPL"><Data>&lt;process/&gt; &amp; &#65;&#x42;</Data></XData></Class></Export>"#;
+    assert_eq!(
+        extract_xdata_content(xml, "BPL").as_deref(),
+        Some("<process/> & AB")
+    );
+}
+
+#[test]
+fn a_dynamic_dispatch_hidden_behind_a_character_reference_is_still_found() {
+    let xml = r#"<process language="objectscript"><sequence>
+<code name="c">Set x = $class&#109;ethod("A.B","M")</code>
+</sequence></process>"#;
+    let flow = parse_bpl(xml).expect("parse_bpl failed");
+    assert!(
+        flow.has_dynamic_dispatch,
+        "the reference spells `m` in $classmethod; text split around it must still be joined"
+    );
+}
+
+#[test]
+fn an_attribute_value_with_references_is_read_resolved() {
+    let xml = r#"<Export><Class name="Demo.Foo"><XData name="B&amp;C"><Data>x</Data></XData></Class></Export>"#;
+    assert_eq!(extract_xdata_content(xml, "B&C").as_deref(), Some("x"));
+}
