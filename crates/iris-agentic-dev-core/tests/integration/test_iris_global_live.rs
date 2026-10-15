@@ -426,3 +426,63 @@ async fn test_get_subtree_of_an_unsubscripted_global_still_works() {
     .await;
     assert_eq!(result["node_count"], 2, "expected two nodes: {result}");
 }
+
+// ── #146 follow-up: a node with a value and children ($DATA = 11) ────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_includes_the_base_nodes_own_value() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146c
+ Set ^IrisDevTest.G146c("cfg")="top"
+ Set ^IrisDevTest.G146c("cfg","a")=1
+ Set ^IrisDevTest.G146c("cfg","b","c")=2
+ Set ^IrisDevTest.G146c("none","a")=3
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    let with_value = IrisGlobalParams {
+        subscripts: Some(vec!["cfg".to_string()]),
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146c")
+    };
+    let r11 = handle_iris_global(&conn, &client, &with_value, Ok(())).await;
+    // A node with children and no value of its own (D=10) emits no row for itself.
+    let valueless = IrisGlobalParams {
+        subscripts: Some(vec!["none".to_string()]),
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146c")
+    };
+    let r10 = handle_iris_global(&conn, &client, &valueless, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146c
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    assert_eq!(
+        r11["node_count"], 3,
+        "own value plus two descendants: {r11}"
+    );
+    let first = &r11["nodes"][0];
+    assert!(
+        first["path"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with(r#"("cfg")"#),
+        "the base node comes first: {r11}"
+    );
+    assert_eq!(first["value"], "top", "{r11}");
+    assert_eq!(
+        r10["node_count"], 1,
+        "a valueless node emits only its child: {r10}"
+    );
+}

@@ -200,6 +200,10 @@ pub fn build_subtree_get_code(gref: &str, max_nodes: i64) -> String {
         format!(" Set baseRef = $Name({})", gref),
         " Set node = baseRef".to_string(),
         " Set count = 0".to_string(),
+        // $Query starts after the base and never returns it, so a node that holds a value and
+        // children ($DATA = 11) lost its own value. Emit it first. A node with children only
+        // (D=10) has no value to emit.
+        r#" If $Data(@baseRef)#2 Write baseRef_"|"_@baseRef,$C(10) Set count=count+1"#.to_string(),
         // A descendant starts with the reference up to its closing parenthesis, plus a comma:
         // `^G("a")` -> `^G("a",`. Comparing against the whole reference (closing parenthesis
         // included) never matched below a subscripted node (#146), and a prefix without the
