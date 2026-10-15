@@ -490,6 +490,47 @@ fn generator_error_detects_the_device_prefix() {
     ));
 }
 
+// ── #138: capture tmpfile pipe must use UTF-8 on both ends ──────────────────
+//
+// Without an explicit translation table the Open device and %Stream.FileCharacter
+// both fall back to the process default (8-bit / RAW on Unicode IRIS), so any
+// non-ASCII code point Written by user code is transcoded to 8-bit and lost as '?'.
+// Both ends of the pipe must agree on UTF-8; asserting the generated ObjectScript
+// carries the two markers prevents a silent regression.
+
+#[test]
+fn test_build_exec_class_open_uses_utf8_translation() {
+    let lines = IrisConnection::build_exec_class_for_test("TestClass", "/tmp/test.txt", "Write 1");
+    let open_line = lines
+        .iter()
+        .find(|l| l.contains("Open tmpfile"))
+        .expect("Open tmpfile line must exist");
+    assert!(
+        open_line.contains("/IOT=\"UTF8\""),
+        "Open tmpfile must set /IOT=\"UTF8\" so Write output is captured as UTF-8; got: {}",
+        open_line
+    );
+}
+
+#[test]
+fn test_build_exec_class_stream_uses_utf8_translation_table() {
+    let lines = IrisConnection::build_exec_class_for_test("TestClass", "/tmp/test.txt", "Write 1");
+    let translate_pos = lines
+        .iter()
+        .position(|l| l.contains("stream.TranslateTable") && l.contains("\"UTF8\""))
+        .expect("stream.TranslateTable = \"UTF8\" line must exist");
+    let link_pos = lines
+        .iter()
+        .position(|l| l.contains("stream.LinkToFile(tmpfile)"))
+        .expect("stream.LinkToFile line must exist");
+    assert!(
+        translate_pos < link_pos,
+        "stream.TranslateTable must be set BEFORE LinkToFile so the capture file is read as UTF-8; got translate={} link={}",
+        translate_pos,
+        link_pos
+    );
+}
+
 #[test]
 fn generator_error_ignores_ordinary_output() {
     for ok in [
