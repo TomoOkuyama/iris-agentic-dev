@@ -200,7 +200,12 @@ pub fn build_subtree_get_code(gref: &str, max_nodes: i64) -> String {
         format!(" Set baseRef = $Name({})", gref),
         " Set node = baseRef".to_string(),
         " Set count = 0".to_string(),
-        r#" For  Set node = $Query(@node)  Quit:node=""  Quit:($Extract(node,1,$Length(baseRef))'=baseRef)  Quit:(count>=maxNodes)  Quit:(($ZH-startTime)>5)  Write node_"|"_@node,$C(10)  Set count=count+1"#.to_string(),
+        // A descendant starts with the reference up to its closing parenthesis, plus a comma:
+        // `^G("a")` -> `^G("a",`. Comparing against the whole reference (closing parenthesis
+        // included) never matched below a subscripted node (#146), and a prefix without the
+        // comma would let `^G(10)` through as a descendant of `^G(1)`.
+        r#" Set prefix = $Select($Extract(baseRef,$Length(baseRef))=")":$Extract(baseRef,1,$Length(baseRef)-1)_",",1:baseRef_"(")"#.to_string(),
+        r#" For  Set node = $Query(@node)  Quit:node=""  Quit:($Extract(node,1,$Length(prefix))'=prefix)  Quit:(count>=maxNodes)  Quit:(($ZH-startTime)>5)  Write node_"|"_@node,$C(10)  Set count=count+1"#.to_string(),
         // truncated=1 if we hit the node cap; time truncation approximated by same check
         // (a 5s timeout stops the loop before all nodes collected, so count<maxNodes but
         //  we cannot distinguish without extra state — accept that time-truncated results

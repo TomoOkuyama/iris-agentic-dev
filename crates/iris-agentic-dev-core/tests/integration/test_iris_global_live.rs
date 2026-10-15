@@ -323,3 +323,106 @@ async fn test_system_blocklist_blocks_pct_sys_live() {
     assert!(result.is_err(), "^%SYS must be blocked");
     assert_eq!(result.unwrap_err()["error_code"], "SYSTEM_BLOCKLIST");
 }
+
+// ── #146: get with subtree under a subscripted reference ─────────────────────
+
+async fn run_in_user(conn: &IrisConnection, client: &reqwest::Client, code: &str) {
+    let _ = conn.execute_via_generator(code, "USER", client).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_below_a_subscripted_node_returns_its_descendants() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    // The data the reporter had: a settings node with children and a grandchild, plus a sibling
+    // whose last subscript starts with the same letters and must not come back.
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146
+ Set ^IrisDevTest.G146("SourceControl","Git","settings","user")="tdyar"
+ Set ^IrisDevTest.G146("SourceControl","Git","settings","remote","url")="git@example"
+ Set ^IrisDevTest.G146("SourceControl","Git","settingsOther","user")="not mine"
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    let p = IrisGlobalParams {
+        subscripts: Some(vec![
+            "SourceControl".to_string(),
+            "Git".to_string(),
+            "settings".to_string(),
+        ]),
+        subtree: Some(true),
+        max_nodes: Some(200),
+        ..make_params("get", "IrisDevTest.G146")
+    };
+    let result = handle_iris_global(&conn, &client, &p, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    assert_eq!(result["success"], true, "get failed: {result}");
+    let paths: Vec<String> = result["nodes"]
+        .as_array()
+        .expect("nodes array")
+        .iter()
+        .map(|n| n["path"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        result["node_count"], 2,
+        "expected two descendants: {result}"
+    );
+    assert!(
+        paths.iter().any(|p| p.ends_with(r#""settings","user")"#)),
+        "missing settings/user in {paths:?}"
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|p| p.ends_with(r#""settings","remote","url")"#)),
+        "missing the grandchild in {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("settingsOther")),
+        "a sibling with the same prefix leaked in: {paths:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_of_an_unsubscripted_global_still_works() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146b
+ Set ^IrisDevTest.G146b("a")=1
+ Set ^IrisDevTest.G146b("b","c")=2
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    let p = IrisGlobalParams {
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146b")
+    };
+    let result = handle_iris_global(&conn, &client, &p, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146b
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    assert_eq!(result["node_count"], 2, "expected two nodes: {result}");
+}
