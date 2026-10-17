@@ -55,6 +55,9 @@ ask to be told directly if you operate it in a regulated environment.
 - Every pull request, every push to master and a weekly schedule run `cargo audit` against the locked Rust
   dependencies and `npm audit` against the VS Code extension's production dependencies. A known
   vulnerability fails the job.
+- A gate check (`objectscript-splice`) fails the build when a tool puts a parameter inside a quote of
+  generated ObjectScript or SQL without escaping it, and a live test per tool tries a crafted parameter
+  against a sentinel global with write tools off (spec 137).
 - Each release publishes a CycloneDX SBOM (`iris-agentic-dev-<version>.cdx.json`) listing every locked
   dependency.
 

@@ -71,6 +71,21 @@ Also:
 - **Audit.** `irisAudit` writes the caller marker (see `docs/agent-attribution.md`) so IRIS's own audit log
   shows which assistant made each call.
 
+## Fixed after 1.5.0: tool parameters that ran as ObjectScript
+
+In 1.5.0 and earlier, about forty tool parameters were put into generated ObjectScript, SQL or a URL
+without escaping. A crafted value could close the literal it landed in and run code. With write tools
+off, such a value deleted a global through `iris_global` (`global_name`), `iris_database_stats` (`db`,
+in `%SYS`), `iris_coverage` (`classes`) and `stream_inspect` (`oid`), and reached generated code
+through about ten more read-only tools. `global_preview` also skipped the system blocklist and PHI
+gates, and the standalone `journal_search` skipped the bulk-PHI gate.
+
+The next release fixes every site found (spec 137): names are checked against IRIS syntax before any
+call, values are escaped for the literal they land in, SQL values are bound as parameters, and the
+three tools go through the policy gate. A check in the release gates fails the build when a new
+unescaped splice appears. Until you run a version with these fixes, do not treat read-only mode as a
+boundary against text an assistant was given to read.
+
 ## What no setting protects
 
 - **`iris_query` and `iris_execute` are free-form.** They run SQL or ObjectScript the assistant composes.

@@ -3,7 +3,8 @@
 ```bash
 # validators and the detector, no IRIS
 RUST_TEST_THREADS=12 cargo test --features testing --test unit os_validators
-python3 -m pytest scripts/gates/test_antipatterns.py -q -k splice
+# the whole file: its last test is the one that fails on any canary, so -k hides failures
+python3 -m pytest scripts/gates/test_antipatterns.py -q
 python3 scripts/gates/antipatterns.py
 
 # live sentinel tests, against iris-dev-iris (web port 52780), serial

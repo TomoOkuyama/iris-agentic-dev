@@ -183,3 +183,42 @@ Ranked by what a caller gains. Within a tier the order is rough.
 - Shell: the ssh remote command must quote the namespace and container, or refuse anything outside a name allowlist.
 - Gates: call `dispatch_gate` from `global_preview`, `global_kill` and `journal_search`, and have gates [3] and [4] read `global` too.
 - Tests: one live test per fixed site, in the ee46c79 pattern (sentinel global set before, asserted after, writes off).
+
+## Resolution (2026-10-17)
+
+Every NEEDS FIX row is fixed and every UNSURE row decided. Commits on `feat/improve-cli`, local:
+
+| Group                        | Commit    | What changed                                                                                             | Test                                                                              |
+| ---------------------------- | --------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `iris_global`, preview       | `ee46c79` | `validate_global_name` before any call                                                                   | `test_get_with_a_crafted_global_name_runs_nothing`, e2e                           |
+| Helpers, detector            | `b9e8b66` | name validators in `objectscript.rs`; `objectscript-splice` with a 125-line baseline                     | `test_os_validators_137`, `test_antipatterns.py`                                  |
+| A1 to A12, namespace         | `8101ebc` | `os_str_expr`/`os_lit_inner` for values; validators for names; `?` binding; `body_where` read-only check | `injection_137_a*`, `injection_137_t022`                                          |
+| B5 gates                     | `6ec90e0` | `global_preview`, `global_kill`, `journal_search` call `dispatch_gate`; gates read `global`              | `injection_137_b5_*`                                                              |
+| B4 multi-argument Kill       | `c327a2c` | `contains_global_kill` walks the whole argument list                                                     | `literal_kill_check_reads_every_argument`                                         |
+| B1 ssh                       | `b174725` | `build_ssh_remote_command` checks and single-quotes the parts; refuses a host starting with `-`          | `ssh_remote_command_is_built_from_checked_parts`                                  |
+| B2, B3 write and destructive | `3a20e6c` | `iris_test`, `iris_execute_method`, production start, mirror join, namespace create                      | `test_run_code_keeps_the_pattern_data`, `write_tier_*`, `execute_method_checks_*` |
+| C URLs                       | `5f40f55` | include names validated; search category is one of five                                                  | `injection_137_c_url_parts_are_checked`                                           |
+| UNSURE                       | `509444e` | `iris_query` count checked like a read                                                                   | `count_query_is_checked_like_a_read`                                              |
+| Detector to zero             | `fdb4d83` | remaining quoted splices escaped or marked `splice-ok` with a reason; never baselined                    | `scripts/gates/antipatterns.py` exits 0                                           |
+| Old tests                    | `c30c858` | tests that pinned the backslash escape or the ungated behaviour now pin the fixed one                    | full suite                                                                        |
+
+UNSURE decisions:
+
+- `iris_coverage` namespace, `iris_compile` `force_writable` namespace: every `namespace` (and `*_namespace`)
+  argument is now checked once in `call_tool`, so both are covered.
+- `extract_message_map_routing` BPL/DTL branch: the class must exist before the export runs, and a class
+  name cannot hold a quote, so it was not reachable; it uses `os_lit_inner` now anyway.
+- `iris_query` mode=count: fixed (`count_query_checked`). Mode=explain: `EXPLAIN` does not execute the
+  statement, so it stays as it is.
+- `iris_execute` docker `&sql` translation: the rewrite can only rearrange text the caller sent, and the
+  code-edit and literal-Kill checks scan that text first, so it cannot add a command the gates did not
+  see. Recorded as safe.
+
+Found after the inventory, by the detector: `iris_admin action=database_status` (`name`, already
+doubled, so not reachable; `os_lit_inner` now), the `iris_query` write path (`%Prepare` with doubled
+quotes only, so a multi-line statement broke the generated code), and `os_quote` in `scm.rs`, which
+wrote line breaks as the text `$Char(10)` inside the literal.
+
+Not covered: a `SELECT` that calls a SQL procedure with side effects. `validate_read_only_sql` checks
+keywords, not function calls, for `iris_query` and `body_where` alike. That is a different class from
+this spec's and is left for its own spec.
