@@ -327,3 +327,30 @@ async fn injection_137_b5_journal_search_is_gated() {
     let r = call("journal_search", json!({"max_entries": 1}));
     assert_eq!(r["error_code"], "DATA_POLICY_BLOCKED", "{r}");
 }
+
+// ── Group C: URL text on GET routes ──────────────────────────────────────────
+
+/// C: an include name went into the document URL path unencoded, and a search category into the
+/// query string, so `x&sys=true` or `../` could change what the request asked for.
+#[tokio::test]
+#[ignore]
+async fn injection_137_c_url_parts_are_checked() {
+    let inc = call(
+        "iris_macro",
+        json!({"action": "list", "includes": ["../../Other/x"]}),
+    );
+    assert_eq!(inc["error_code"], "INVALID_ROUTINE_NAME", "{inc}");
+    let cat = call(
+        "iris_search",
+        json!({"query": "Foo", "documents": ["MyPkg.*.cls"], "category": "CLS&sys=true"}),
+    );
+    assert_eq!(cat["error_code"], "INVALID_PARAMS", "{cat}");
+    let ok = call(
+        "iris_macro",
+        json!({"action": "list", "includes": ["%occStatus"]}),
+    );
+    assert_ne!(
+        ok["error_code"], "INVALID_ROUTINE_NAME",
+        "a real include still lists: {ok}"
+    );
+}

@@ -60,6 +60,14 @@ pub async fn handle_iris_search(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let namespace = crate::tools::resolve_namespace(p.namespace.as_deref(), &iris.namespace);
     let category = p.category.as_deref().unwrap_or("ALL");
+    // The category goes into the query string; `CLS&sys=true` would add a parameter (137).
+    if !["CLS", "MAC", "INT", "INC", "ALL"].contains(&category.to_ascii_uppercase().as_str()) {
+        return crate::tools::err_result(serde_json::json!({
+            "success": false,
+            "error_code": "INVALID_PARAMS",
+            "error": format!("category must be CLS, MAC, INT, INC or ALL, not '{category}'"),
+        }));
+    }
     // A scope is mandatory. Without one Atelier would grep the whole namespace and
     // time out server-side, returning nothing — an empty result that reads as
     // "term not found" when the term is simply out of a (nonexistent) scope.

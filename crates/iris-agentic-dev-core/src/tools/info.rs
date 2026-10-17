@@ -509,6 +509,10 @@ pub async fn handle_iris_macro(
             if let Some(includes) = p.includes.as_deref().filter(|i| !i.is_empty()) {
                 let mut macros = Vec::new();
                 for inc in includes {
+                    // The name becomes a URL path segment; `../x` would walk out of it (137).
+                    if let Err(e) = crate::objectscript::validate_routine_name(&strip_inc(inc)) {
+                        return crate::tools::err_result(e);
+                    }
                     let path = format!("/doc/{}.inc", strip_inc(inc));
                     let body = match macro_get(iris, client, &macro_url(iris, ns, &path)).await {
                         Ok(b) => b,
