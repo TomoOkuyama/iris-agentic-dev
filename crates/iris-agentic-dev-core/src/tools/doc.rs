@@ -1648,6 +1648,9 @@ async fn handle_compiled(
         }
     }
 
+    if let Err(e) = crate::objectscript::validate_routine_name(&name) {
+        return crate::tools::err_result(e);
+    }
     let routine = match derive_routine_name(&name) {
         Some(r) => r,
         None => {
@@ -1658,8 +1661,9 @@ async fn handle_compiled(
         }
     };
 
+    let routine_e = crate::objectscript::os_str_expr(&format!("{routine}.INT"));
     let code = format!(
-        " Set rtn = ##class(%Library.Routine).%OpenId(\"{routine}.INT\")\n If rtn = \"\" {{ Write \"NOT_COMPILED\",$C(10)  Quit }}\n Do rtn.Rewind()\n While 'rtn.AtEnd {{ Write rtn.ReadLine(),$C(10) }}\n Write \"DONE\",$C(10)"
+        " Set rtn = ##class(%Library.Routine).%OpenId({routine_e})\n If rtn = \"\" {{ Write \"NOT_COMPILED\",$C(10)  Quit }}\n Do rtn.Rewind()\n While 'rtn.AtEnd {{ Write rtn.ReadLine(),$C(10) }}\n Write \"DONE\",$C(10)"
     );
 
     let output = match iris.execute_via_generator(&code, ns, client).await {

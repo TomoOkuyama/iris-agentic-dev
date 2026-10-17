@@ -23,6 +23,18 @@ empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	b8b56ba0c01e	# `test_dispatch_iris_admin_create_delete_namespace` asserts nothing — n
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	9cdc3b7cfc39	# `test_dispatch_extract_message_map_routing_v2` asserts nothing — no as
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	13fecd079db2	# `test_query_nonexistent_table` asserts nothing — no assert!, unwrap, e
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	f76a4e846f12	# `injection_137_a01_database_stats_db` asserts nothing — no assert!, un
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	2202dbb577c0	# `injection_137_a02_journal_search_start_end` asserts nothing — no asse
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	9b4104ee9ee3	# `injection_137_a04_debug_map_int_and_source_map` asserts nothing — no 
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	822456456875	# `injection_137_a06_doc_compiled_name` asserts nothing — no assert!, un
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	958cceb4a324	# `injection_137_a07_coverage_report` asserts nothing — no assert!, unwr
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	74ec2fe53f61	# `injection_137_a08_stream_and_hl7_schema` asserts nothing — no assert!
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	caa878c2f41f	# `injection_137_a09_table_info_and_dispatch` asserts nothing — no asser
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0c8c70612fc0	# `injection_137_a03_interop_body_where` asserts nothing — no assert!, u
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	54e7f52449b5	# `injection_137_a12_admin_journal_time_range` asserts nothing — no asse
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0a52431c1e00	# `injection_137_a10_skills_and_kb` asserts nothing — no assert!, unwrap
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	a667aa4dadd6	# `injection_137_a11_mermaid_and_storage` asserts nothing — no assert!, 
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0851f98c436c	# `injection_137_t022_namespace_on_read_only_tools` asserts nothing — no
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_skill_install_e2e.rs	c9c7a2adcede	# `e2e_mirror_to_iris` asserts nothing — no assert!, unwrap, expect, or 
 empty-tests	crates/iris-agentic-dev-core/tests/skills_tests.rs	f90c140baaa9	# `load_invalid_repo_returns_error` asserts nothing — no assert!, unwrap
 empty-tests	crates/iris-agentic-dev-core/tests/skills_tests.rs	a40735cafa22	# `multiple_subscriptions_accumulate` asserts nothing — no assert!, unwr
@@ -165,24 +177,14 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	c71038
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	ca7ec6a03a9e	# splices "{db}" inside a quote of generated code; caller text there can
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	fa57b19fd9f8	# splices "{dir}" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	4031d29b46d2	# splices \"{s}\" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	51c4cb2cc24a	# splices \"{e}\" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	00563f83e19a	# splices "{id}" inside a quote of generated code; caller text there can
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	00563f83e19a	# splices "{id}" inside a quote of generated code; caller text there can
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	873dead2a76e	# splices "{schema}" inside a quote of generated code; caller text there
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	fd3664fb6044	# splices "{seg}" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	873dead2a76e	# splices "{schema}" inside a quote of generated code; caller text there
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	07e781b39c8d	# splices "{profile}" inside a quote of generated code; caller text ther
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	d20358afde82	# splices "{run_id}" inside a quote of generated code; caller text there
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	6090a5b5bced	# splices "{global_ref}" inside a quote of generated code; caller text t
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	51657d432c8f	# splices "{description}" inside a quote of generated code; caller text 
+objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	6090a5b5bced	# splices "{global_ref}" inside a quote of generated code; caller text t
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	d20358afde82	# splices "{run_id}" inside a quote of generated code; caller text there
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/dict.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/dict.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/dict.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	8e726b51967b	# splices \"{STATUS_ERROR_MARKER}\" inside a quote of generated code; ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	7b607dfba908	# splices \"{u}\" inside a quote of generated code; caller text there ca
@@ -191,15 +193,8 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	0eaa4a12e273	#
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	0eaa4a12e273	# splices \"{n}\" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/execute_session.rs	26e56a40deca	# splices \"{token}\" inside a quote of generated code; caller text ther
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	873dead2a76e	# splices "{schema}" inside a quote of generated code; caller text there
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	f726c79659e2	# splices \"{cls}\" inside a quote of generated code; caller text there 
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	873dead2a76e	# splices "{schema}" inside a quote of generated code; caller text there
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	622781c2b285	# splices "{table}" inside a quote of generated code; caller text there 
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/info.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	387cad343d40	# splices "{c}" inside a quote of generated code; caller text there can 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	84c6d7e2c9ea	# splices '{rule_q}' inside a quote of generated code; caller text there
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	f39df348519d	# splices "{rule_id_q}" inside a quote of generated code; caller text th
@@ -218,18 +213,9 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	7d31e7fddd38	#
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	7d31e7fddd38	# splices "{pattern}" inside a quote of generated code; caller text ther
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	3a321716999b	# splices "{flags}" inside a quote of generated code; caller text there 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	c03df5cf5a31	# splices "{token}" inside a quote of generated code; caller text there 
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	16ef255c3ab6	# splices "{cls}" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	16f24eefc965	# splices "{count_sql}" inside a quote of generated code; caller text th
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	eba288af0719	# splices "{sql}" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/observability.rs	d153d5c9f2f1	# splices "{search}" inside a quote of generated code; caller text there
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/observability.rs	c4333457bd38	# splices "{from}" inside a quote of generated code; caller text there c
@@ -244,18 +230,6 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/scm.rs	8accac4d6f3b	#
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/scm.rs	1e75ff99b7c3	# splices \"{user_q}\" inside a quote of generated code; caller text the
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/scm.rs	d65c14fbe256	# splices \"{pass_q}\" inside a quote of generated code; caller text the
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/scm.rs	8accac4d6f3b	# splices \"{doc_q}\" inside a quote of generated code; caller text ther
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/skills_tools.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 tool-name-refs	crates/iris-agentic-dev-bin/src/cmd/mcp.rs	a61efb98e374	# names `iris_tx`, which is not in tools::write_gate::CLASSIFICATION. Ag
 tool-name-refs	crates/iris-agentic-dev-bin/src/cmd/mcp.rs	57a907251aaa	# names `iris_rx`, which is not in tools::write_gate::CLASSIFICATION. Ag
 tool-name-refs	crates/iris-agentic-dev-core/src/iris/connection.rs	3ae84fe32df9	# names `iris_audit`, which is not in tools::write_gate::CLASSIFICATION.

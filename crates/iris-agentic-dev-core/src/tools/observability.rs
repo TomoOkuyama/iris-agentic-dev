@@ -225,6 +225,13 @@ pub async fn journal_search_impl(
         .map(iso8601_to_iris_timestamp)
         .unwrap_or_default();
 
+    for ts in [&from_ts, &to_ts] {
+        if !ts.is_empty() {
+            if let Err(e) = crate::objectscript::validate_timestamp(ts) {
+                return crate::tools::err_result(e);
+            }
+        }
+    }
     let code = format!(
         r#"Set tFile=##class(%SYS.Journal.System).GetCurrentFile()
 Set tFirst=tFile.FirstRecordGet()
@@ -249,7 +256,7 @@ While tRS.Next() && (tCount<{cap}) {{
   Set tCount=tCount+1
 }}
 Write "COUNT:"_tCount,!"#,
-        search = search_term.replace('"', "\"\""),
+        search = crate::objectscript::os_lit_inner(&search_term),
         cap = cap,
         from = from_ts,
         to = to_ts,

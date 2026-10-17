@@ -587,6 +587,28 @@ pub fn header_filters(params: &MessageSearchParams, pfx: &str) -> Vec<String> {
     filters
 }
 
+/// `body_where` is spliced into a SELECT as a WHERE fragment, so it is held to the rules `iris_query`
+/// applies to a whole statement: no `;`, no comment that could hide the rest of the query, and none
+/// of the write keywords `validate_read_only_sql` refuses (137).
+pub fn check_body_where(w: &str) -> Result<(), serde_json::Value> {
+    let refuse = |why: String| {
+        serde_json::json!({
+            "success": false,
+            "error_code": "INVALID_PARAMS",
+            "message": format!("body_where {why}. It must be a WHERE condition, for example r.Status = 'Open'."),
+            "body_where": w,
+        })
+    };
+    if w.contains(';') {
+        return Err(refuse("contains ';'".to_string()));
+    }
+    if w.contains("--") || w.contains("/*") {
+        return Err(refuse("contains a comment".to_string()));
+    }
+    crate::tools::validate_read_only_sql(&format!("SELECT 1 WHERE {w}"))
+        .map_err(|k| refuse(format!("contains {k}, which a read-only query may not")))
+}
+
 pub fn is_sql_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
@@ -764,11 +786,8 @@ pub async fn interop_message_search_impl(
             }
         };
         if let Some(w) = &params.body_where {
-            if w.contains(';') {
-                return err_json(
-                    "INVALID_PARAMS",
-                    "body_where must be a WHERE fragment, not a statement (no ';')",
-                );
+            if let Err(e) = check_body_where(w) {
+                return crate::tools::err_result(e);
             }
         }
         if let Some(bad) = params.body_select.iter().find(|c| !is_sql_identifier(c)) {

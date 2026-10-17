@@ -105,7 +105,7 @@ pub async fn handle_skill(
             let name = p.name.as_deref().unwrap_or("");
             let code = format!(
                 "set data=$get(^SKILLS(\"{}\")) write data",
-                name.replace('"', "\\\"")
+                crate::objectscript::os_lit_inner(name)
             );
             let raw = match xecute(iris, client, &code, &ns).await {
                 Ok(v) => v,
@@ -129,7 +129,7 @@ pub async fn handle_skill(
             // Bug 9: use separator variable so empty results yield "[]" not "]".
             let code = format!(
                 "set key=\"\" set out=\"[\" set sep=\"\" for {{ set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) if $find($zconvert(key_data,\"L\"),\"{}\")>0 {{ set out=out_sep_\"{{\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\"}}\" set sep=\",\" }} }} set out=out_\"]\" write out",
-                query.replace('"', "\\\"")
+                crate::objectscript::os_lit_inner(&query)
             );
             let raw = match xecute(iris, client, &code, &ns).await {
                 Ok(v) => v,
@@ -143,7 +143,7 @@ pub async fn handle_skill(
             let name = p.name.as_deref().unwrap_or("");
             let code = format!(
                 "kill ^SKILLS(\"{}\") write \"ok\"",
-                name.replace('"', "\\\"")
+                crate::objectscript::os_lit_inner(name)
             );
             // `forget` reported `"action": "forgotten"` whether or not the kill ran. A delete that
             // silently did nothing is the one outcome a caller must never be told is a success.
@@ -193,9 +193,9 @@ pub async fn handle_skill(
             let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
             let code = format!(
                 "set ^SKILLS(\"{}\")=\"{}|{}|0|{}\" write \"ok\"",
-                skill_name.replace('"', "\\\""),
-                description.replace('"', "\\\""),
-                body.replace('"', "\\\""),
+                crate::objectscript::os_lit_inner(&skill_name),
+                crate::objectscript::os_lit_inner(&description),
+                crate::objectscript::os_lit_inner(&body),
                 now,
             );
             // `forget` reported `"action": "forgotten"` whether or not the kill ran. A delete that
@@ -267,9 +267,9 @@ pub async fn handle_skill_community(
                     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
                     let code = format!(
                         "set ^SKILLS(\"{}\")=\"{}|{}|0|{}\" write \"ok\"",
-                        sname.replace('"', "\\\""),
-                        sdesc.replace('"', "\\\""),
-                        scontent.replace('"', "\\\""),
+                        crate::objectscript::os_lit_inner(&sname),
+                        crate::objectscript::os_lit_inner(&sdesc),
+                        crate::objectscript::os_lit_inner(&scontent),
                         now,
                     );
                     // An install that never landed must not report `installed`.
@@ -343,13 +343,10 @@ pub async fn handle_kb(
                         .unwrap_or(false)
                     {
                         if let Ok(content) = std::fs::read_to_string(&fp) {
-                            let fname = fp
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("")
-                                .replace('"', "\\\"");
+                            let fname = fp.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            let fname = crate::objectscript::os_lit_inner(fname);
                             let chunk: String = content.chars().take(2000).collect();
-                            let chunk_escaped = chunk.replace('"', "\\\"").replace('\n', "\\n");
+                            let chunk_escaped = crate::objectscript::os_lit_inner(&chunk);
                             let code = format!(
                                 "set ^KBCHUNKS(\"{fname}\")=\"{chunk_escaped}\" write \"ok\""
                             );
@@ -374,7 +371,7 @@ pub async fn handle_kb(
             // Bug 9: use separator variable so empty results yield "[]" not "]".
             let code = format!(
                 "set key=\"\" set out=\"[\" set sep=\"\" set count=0 for {{ set key=$order(^KBCHUNKS(key)) quit:(key=\"\" || count>={top_k})  set data=$get(^KBCHUNKS(key)) if $find($zconvert(data,\"L\"),\"{query}\")>0 {{ set out=out_sep_\"{{\\\"file\\\":\\\"\"_key_\"\\\",\\\"excerpt\\\":\\\"\"_$extract(data,1,200)_\"\\\"}}\" set sep=\",\" set count=count+1 }} }} set out=out_\"]\" write out",
-                query = query.replace('"', "\\\""),
+                query = crate::objectscript::os_lit_inner(&query),
                 top_k = top_k,
             );
             let raw = match xecute(iris, client, &code, &ns).await {

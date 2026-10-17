@@ -73,7 +73,10 @@ pub fn build_coverage_check_code(namespace: &str) -> String {
 
 /// Build the routine list fragment for ObjectScript ($lb("R1","R2",...))
 fn build_routine_list_fragment(routines: &[String]) -> String {
-    let quoted: Vec<String> = routines.iter().map(|r| format!("\"{}\"", r)).collect();
+    let quoted: Vec<String> = routines
+        .iter()
+        .map(|r| crate::objectscript::os_str_expr(r))
+        .collect();
     format!("$lb({})", quoted.join(","))
 }
 
@@ -400,7 +403,11 @@ fn build_coverage_report_code(routines: &[String], namespace: &str) -> String {
         " Set totalHit=0  Set totalExec=0".to_string(),
     ];
     for (idx, rtn) in routines.iter().enumerate() {
-        lines.push(format!(" Set rtn{}=\"{}\"", idx, rtn));
+        lines.push(format!(
+            " Set rtn{}={}",
+            idx,
+            crate::objectscript::os_str_expr(rtn)
+        ));
         lines.push(format!(
             " Set rset{}=##class(%ResultSet).%New(\"%Monitor.System.LineByLine:Result\")",
             idx
@@ -460,6 +467,17 @@ pub async fn handle_iris_coverage(
         .namespace
         .clone()
         .unwrap_or_else(|| iris.namespace.clone());
+
+    // Every name below is spliced into generated ObjectScript, and the docker path runs it line by
+    // line as terminal input, so each one is checked before any code is built (137).
+    if let Err(e) = crate::objectscript::validate_namespace(&ns) {
+        return e;
+    }
+    for name in params.classes.iter().flatten().chain(params.package.iter()) {
+        if let Err(e) = crate::objectscript::validate_class_name(name) {
+            return e;
+        }
+    }
 
     match params.mode.as_str() {
         "check" => {

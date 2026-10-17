@@ -688,8 +688,8 @@ pub async fn handle_iris_debug(
         "map_int" => {
             let err = p.error_string.as_deref().unwrap_or("");
             let code = format!(
-                "set err=\"{}\" set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
-                err.replace('"', "\\\"")
+                "set err={} set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
+                crate::objectscript::os_str_expr(err)
             );
             match iris.execute_via_generator(&code, ns, client).await {
                 Ok(output) => ok_json(
@@ -719,9 +719,12 @@ pub async fn handle_iris_debug(
         }
         "source_map" => {
             let cls = p.class_name.as_deref().unwrap_or("");
+            if let Err(e) = crate::objectscript::validate_class_name(cls) {
+                return crate::tools::err_result(e);
+            }
             let code = format!(
-                "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT(\"{cls}\",line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
-                cls = cls.replace('"', "\\\"")
+                "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT({cls_e},line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
+                cls_e = crate::objectscript::os_str_expr(cls)
             );
             match iris.execute_via_generator(&code, ns, client).await {
                 Ok(output) => ok_json(
@@ -900,6 +903,10 @@ pub async fn handle_iris_table_info(
     p: TableInfoParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let namespace = crate::tools::resolve_namespace(p.namespace.as_deref(), &iris.namespace);
+    // The parts are spliced into ObjectScript and into SQL text below (137).
+    if let Err(e) = crate::objectscript::validate_sql_identifier(&p.table) {
+        return crate::tools::err_result(e);
+    }
     // Split "Schema.Table" → (schema, table). Tables with no dot use SQLUser schema.
     let (sql_schema, sql_table) = match p.table.find('.') {
         Some(idx) => (p.table[..idx].to_string(), p.table[idx + 1..].to_string()),
@@ -925,8 +932,8 @@ if rs.%Next() {{
     write "DDL_TABLE",!
 }}
 "#,
-        schema = sql_schema.replace('"', "\\\""),
-        table = sql_table.replace('"', "\\\""),
+        schema = crate::objectscript::os_lit_inner(&sql_schema),
+        table = crate::objectscript::os_lit_inner(&sql_table),
     );
 
     let output = iris
@@ -1048,8 +1055,8 @@ async fn get_row_count(
     let code = format!(
         r#"set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM ""{schema}"".{table}")
 if rs.%Next() {{ write rs.%GetData(1),! }} else {{ write "error",! }}"#,
-        schema = schema.replace('"', "\\\""),
-        table = table.replace('"', "\\\""),
+        schema = crate::objectscript::os_lit_inner(schema),
+        table = crate::objectscript::os_lit_inner(table),
     );
     match iris.execute_via_generator(&code, namespace, client).await {
         Ok(out) => out

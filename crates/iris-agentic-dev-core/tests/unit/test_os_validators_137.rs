@@ -229,3 +229,98 @@ fn os_str_expr_quotes_what_it_splices() {
     assert!(with_newline.contains("$CHAR(10)"), "{with_newline}");
     assert!(!with_newline.contains('\n'), "{with_newline}");
 }
+
+/// Evaluates an expression made only of ObjectScript string literals, `_` and `$CHAR(n,...)`.
+/// Anything else (a command, a call, an operator) is a parse failure: that is the property a splice
+/// needs, since the payload must stay data.
+fn eval_string_expr(e: &str) -> Option<String> {
+    let b: Vec<char> = e.chars().collect();
+    let (mut i, mut out, mut want_term) = (0, String::new(), true);
+    while i < b.len() {
+        if want_term {
+            if b[i] == '"' {
+                i += 1;
+                loop {
+                    let c = *b.get(i)?;
+                    if c == '"' {
+                        if b.get(i + 1) == Some(&'"') {
+                            out.push('"');
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    out.push(c);
+                    i += 1;
+                }
+            } else if e[i..].starts_with("$CHAR(") {
+                let close = e[i..].find(')')? + i;
+                for n in e[i + 6..close].split(',') {
+                    out.push(char::from_u32(n.trim().parse().ok()?)?);
+                }
+                i = close + 1;
+            } else {
+                return None;
+            }
+            want_term = false;
+        } else {
+            if b[i] != '_' {
+                return None;
+            }
+            i += 1;
+            want_term = true;
+        }
+    }
+    (!want_term).then_some(out)
+}
+
+/// `os_lit_inner` goes between the quotes a site already has: `"{}"` with it inside is an
+/// expression of literals and `$CHAR` only, equal to the input, whatever the input holds.
+#[test]
+fn os_lit_inner_fits_inside_existing_quotes() {
+    use iris_agentic_dev_core::objectscript::os_lit_inner;
+    let cases = [
+        "plain",
+        "",
+        "a\"b",
+        "X\" Kill ^Y Set z=\"",
+        "X) Kill ^Y Set q=$Get(^X",
+        "line1\nline2",
+        "\tlead",
+        "trail\r",
+    ];
+    for s in cases {
+        let expr = format!("\"{}\"", os_lit_inner(s));
+        assert!(!expr.contains('\n') && !expr.contains('\r'), "{expr}");
+        assert_eq!(eval_string_expr(&expr).as_deref(), Some(s), "{expr}");
+    }
+    assert_eq!(
+        eval_string_expr("\"a\" Kill ^Y"),
+        None,
+        "the checker must reject code"
+    );
+}
+
+/// `iris_interop_query` `body_where` is a WHERE fragment spliced into a SELECT. It gets the same
+/// read-only check `iris_query` applies, and no comment that could hide the rest of the query.
+#[test]
+fn body_where_is_held_to_the_iris_query_rules() {
+    use iris_agentic_dev_core::tools::interop::check_body_where;
+    for ok in [
+        "r.Status = 'Open'",
+        "r.Amount > 10 AND r.Region IN ('N','S')",
+    ] {
+        assert!(check_body_where(ok).is_ok(), "{ok}");
+    }
+    for bad in [
+        "1=1; DELETE FROM Ens.MessageHeader",
+        "1=1) OR (1=1 --",
+        "1=1 /* hide */",
+        "ID IN (SELECT ID FROM Foo) OR 1=1 UNION DELETE FROM X",
+        "1=1 OR ID=(SELECT 1 FROM X WHERE 1=(UPDATE X SET A=1))",
+    ] {
+        let e = check_body_where(bad).expect_err(bad);
+        assert_eq!(e["error_code"], "INVALID_PARAMS", "{bad}: {e}");
+    }
+}

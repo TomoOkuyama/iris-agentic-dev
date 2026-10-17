@@ -1357,7 +1357,7 @@ do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
 /// ObjectScript snippet to probe whether a class extends %UnitTest.TestProduction.
 /// Returns code that writes "1" if it does, "0" otherwise.
 pub fn build_superclass_probe(class_name: &str) -> String {
-    let safe = class_name.replace('"', "\\\"");
+    let safe = crate::objectscript::os_lit_inner(class_name);
     format!(
         r#"set oref=##class(%Dictionary.ClassDefinition).%OpenId("{cls}")
 if $isobject(oref) {{ write $select($find(oref.Super,"%UnitTest.TestProduction"):1,1:0) }} else {{ write 0 }}"#,
@@ -3618,8 +3618,8 @@ impl IrisTools {
             if docker_only || no_pws {
                 let code = format!(
                     "do $SYSTEM.OBJ.Compile(\"{}\",\"{}\")",
-                    p.target.replace('"', "\\\""),
-                    p.flags.replace('"', "\\\""),
+                    crate::objectscript::os_lit_inner(&p.target),
+                    crate::objectscript::os_lit_inner(&p.flags),
                 );
                 let exec_path = nopws::execution_path_docker(ssh_host_compile.as_deref());
                 let result = if let Some(ref ssh_host) = ssh_host_compile {
@@ -4043,7 +4043,7 @@ impl IrisTools {
         // US3: namespace existence check before running tests.
         let ns_check_code = format!(
             "write ##class(%SYS.Namespace).Exists(\"{}\")",
-            namespace.replace('"', "\\\"")
+            crate::objectscript::os_lit_inner(&namespace)
         );
         let ns_exists = tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -5749,7 +5749,7 @@ impl IrisTools {
         let client = self.http_client();
         let code = format!(
             "Write ##class(%Studio.Debugger).SourceLine(\"{}\",{})",
-            p.routine.replace('"', "\\\""),
+            crate::objectscript::os_lit_inner(&p.routine),
             p.offset
         );
         match iris.execute_via_generator(&code, namespace, client).await {
@@ -5852,7 +5852,7 @@ impl IrisTools {
         // Build source map by querying %Studio.Debugger for each .INT method
         let code = format!(
             "set cls=\"{}\" set rtn=$translate(cls,\".\",\".\") set map=\"{{\" set first=1 set method=\"\" for {{ set method=$order(^rIndex(rtn,method)) quit:method=\"\"  set intline=$get(^rIndex(rtn,method)) if 'first {{ set map=map_\",\" }} set map=map_\"\\\"\"_method_\"\\\":\\\"\"_intline_\"\\\"\" set first=0 }} set map=map_\"}}\" write map",
-            cls_name.replace('"', "\\\"")
+            crate::objectscript::os_lit_inner(cls_name)
         );
         match iris.execute_via_generator(&code, namespace, client).await {
             Ok(output) => {
@@ -6091,7 +6091,10 @@ Methods:
 
         let (synth, synth_searched) = self.synthesized_skills().await;
         if synth_searched {
-            let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
+            let code = format!(
+                "Write $Get(^SKILLS(\"{}\"))",
+                crate::objectscript::os_lit_inner(&p.name)
+            );
             if let Some(iris) = self.iris_arc() {
                 if let Ok(output) = iris
                     .execute(&code, &crate::tools::skills_tools::skills_namespace())
@@ -6216,7 +6219,7 @@ Methods:
         if let Some(iris) = self.iris_arc().as_deref() {
             let code = format!(
                 "Kill ^SKILLS(\"{}\") Write \"OK\"",
-                p.name.replace('"', "\\\"")
+                crate::objectscript::os_lit_inner(&p.name)
             );
             match iris
                 .execute(&code, &crate::tools::skills_tools::skills_namespace())
@@ -9527,6 +9530,25 @@ impl ServerHandler for IrisTools {
                         }
                     }
 
+                    // Namespace check, third (137). Every tool that takes a namespace splices it
+                    // into generated code (`New $NAMESPACE Set $NAMESPACE="…"`, `zn`, a URL), and
+                    // `resolve_namespace` accepts any non-empty string. One site, like the
+                    // unknown-parameter check above, so the next tool cannot forget it.
+                    if let Some(args) = request.arguments.as_ref() {
+                        for (key, value) in args {
+                            if key != "namespace" && !key.ends_with("_namespace") {
+                                continue;
+                            }
+                            let Some(ns) = value.as_str().filter(|s| !s.is_empty()) else {
+                                continue;
+                            };
+                            if let Err(e) = crate::objectscript::validate_namespace(ns) {
+                                self.record_call(&request.name, false);
+                                return err_result(e).map(Into::into);
+                            }
+                        }
+                    }
+
                     // T019: warn once when the connection is docker_only so operators know
                     // that HTTP headers (including User-Agent) cannot be set on this transport.
                     {
@@ -9873,7 +9895,7 @@ async fn detect_xdata_flow(
     let xdata_block = if is_bpl { "BPL" } else { "DTL" };
     // BPL/DTL classes must be exported with their type suffix (.bpl/.dtl), not as .cls
     let ext = if is_bpl { "bpl" } else { "dtl" };
-    let export_item = format!("{}.{}", class_name.replace('"', "\\\""), ext);
+    let export_item = format!("{}.{}", crate::objectscript::os_lit_inner(class_name), ext);
     let export_code = format!(
         "Set stream = ##class(%Stream.GlobalCharacter).%New() \
          Do $system.OBJ.ExportToStream(\"{}\",stream,,\"c\") \

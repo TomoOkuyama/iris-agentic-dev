@@ -62,6 +62,13 @@ pub fn os_stream_write_stmts(stream_var: &str, payload: &str, chunk_chars: usize
         .collect()
 }
 
+/// The text to put *between* the quotes of an existing literal so that `"<this>"` evaluates to `s`.
+/// It closes the literal, concatenates `os_str_expr(s)`, and reopens it: `"`, `_`, expr, `_`, `"`.
+/// For sites written as `\"{}\"` that cannot easily drop their own quotes.
+pub fn os_lit_inner(s: &str) -> String {
+    format!("\"_{}_\"", os_str_expr(s))
+}
+
 // ── Names spliced into code ─────────────────────────────────────────────────
 //
 // A name lands in generated code bare (`^<global>`, `##class(<class>)`) or inside a literal. Free text

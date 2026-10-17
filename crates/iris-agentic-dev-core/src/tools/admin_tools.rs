@@ -2,6 +2,7 @@
 //! Implements T077–T105 from spec 072-c.
 
 use crate::iris::connection::{generator_error_message, is_generator_error, IrisConnection};
+use crate::objectscript::{os_str_expr, validate_class_name, validate_timestamp};
 use rmcp::{model::*, ErrorData as McpError};
 use std::sync::Arc;
 
@@ -1543,8 +1544,9 @@ pub async fn iris_database_stats_impl(
 ) -> Result<CallToolResult, McpError> {
     // Use SYS.Database:List and augment with GetFreeSpace for specific DB or all.
     let code = if let Some(dir) = db {
+        let dir = os_str_expr(dir);
         format!(
-            r#"Set dir="{dir}"
+            r#"Set dir={dir}
 Set tSC=##class(SYS.Database).GetFreeSpace(dir,.free,.blocks)
 If $$$ISERR(tSC) {{
   Write "ERROR:"_$System.Status.GetErrorText(tSC),!
@@ -1605,11 +1607,16 @@ pub async fn journal_search_impl(
     max_entries: u32,
 ) -> Result<CallToolResult, McpError> {
     let limit = max_entries.clamp(1, 500);
+    for bound in [start, end].into_iter().flatten() {
+        if let Err(e) = validate_timestamp(bound) {
+            return crate::tools::err_result(e);
+        }
+    }
     let start_filter = start
-        .map(|s| format!("If ts<\"{s}\" Continue"))
+        .map(|s| format!("If ts<{} Continue", os_str_expr(s)))
         .unwrap_or_default();
     let end_filter = end
-        .map(|e| format!("If ts>\"{e}\" Continue"))
+        .map(|e| format!("If ts>{} Continue", os_str_expr(e)))
         .unwrap_or_default();
     let global_filter = global_pattern
         .map(|p| {
@@ -1619,8 +1626,8 @@ pub async fn journal_search_impl(
             // Gating on TypeName="SetKillRecord" made this `If` permanently false, so the
             // filter below never ran and every record passed through unfiltered.
             format!(
-                "If $classname(rec)[\"SetKillRecord\" {{ If rec.GlobalReference'[\"{}\" Continue }}",
-                p.replace('"', "")
+                "If $classname(rec)[\"SetKillRecord\" {{ If rec.GlobalReference'[{} Continue }}",
+                os_str_expr(p)
             )
         })
         .unwrap_or_default();
@@ -1758,12 +1765,12 @@ pub async fn stream_inspect_impl(
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
     // Strip leading/trailing whitespace and extract numeric id
-    let id = oid.trim();
+    let id = os_str_expr(oid.trim());
     let code = format!(
-        r#"Set stream=##class(%Stream.GlobalCharacter).%OpenId("{id}")
+        r#"Set stream=##class(%Stream.GlobalCharacter).%OpenId({id})
 If stream="" {{
   // Try binary
-  Set stream=##class(%Stream.GlobalBinary).%OpenId("{id}")
+  Set stream=##class(%Stream.GlobalBinary).%OpenId({id})
   If stream="" {{ Write "ERROR:STREAM_NOT_FOUND",! Quit }}
   Set isText=0
 }} Else {{
@@ -2038,10 +2045,12 @@ pub async fn hl7_schema_inspect_impl(
         return err_json(ERR_HL7_NOT_AVAILABLE, "EnsLib.HL7.Schema is not available.");
     }
 
+    let schema_e = os_str_expr(schema);
     let seg_code = if let Some(seg) = segment {
+        let seg = os_str_expr(seg);
         format!(
             r#"Set tRS=##class(%ResultSet).%New("EnsLib.HL7.Schema:SegmentStructureElements")
-Set tSC=tRS.Execute("{schema}","{seg}")
+Set tSC=tRS.Execute({schema_e},{seg})
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 While tRS.Next() {{
   Write tRS.Data("FieldName"),"|",tRS.Data("Description"),!
@@ -2050,7 +2059,7 @@ While tRS.Next() {{
     } else {
         format!(
             r#"Set tRS=##class(%ResultSet).%New("EnsLib.HL7.Schema:MessageStructures")
-Set tSC=tRS.Execute("{schema}")
+Set tSC=tRS.Execute({schema_e})
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 While tRS.Next() {{
   Write tRS.Data("StructureName"),!
@@ -2129,6 +2138,9 @@ pub async fn mermaid_class_impl(
     depth: u32,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
+    if let Err(e) = validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
     let depth = depth.clamp(1, 5);
     // Walk superclass chain up to depth levels
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2145,10 +2157,11 @@ pub async fn mermaid_class_impl(
                 continue;
             }
             visited.insert(cls.clone());
-            let escaped = cls.replace('"', "");
-            let sql =
-                format!("SELECT Name, Super FROM %Dictionary.CompiledClass WHERE Name='{escaped}'");
-            if let Ok(resp) = iris.query(&sql, vec![], namespace, client).await {
+            let sql = "SELECT Name, Super FROM %Dictionary.CompiledClass WHERE Name = ?";
+            if let Ok(resp) = iris
+                .query(sql, vec![serde_json::json!(cls)], namespace, client)
+                .await
+            {
                 let rows = resp["result"]["content"]
                     .as_array()
                     .cloned()
@@ -2195,11 +2208,16 @@ pub async fn mermaid_production_impl(
     production: &str,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
-    let escaped = production.replace('"', "");
-    let sql = format!(
-        "SELECT Name, ClassName, Category, Enabled FROM Ens_Config.Item WHERE Production='{escaped}' ORDER BY Category, Name"
-    );
-    match iris.query(&sql, vec![], namespace, client).await {
+    if let Err(e) = validate_class_name(production) {
+        return crate::tools::err_result(e);
+    }
+    let sql =
+        "SELECT Name, ClassName, Category, Enabled FROM Ens_Config.Item WHERE Production = ? \
+               ORDER BY Category, Name";
+    match iris
+        .query(sql, vec![serde_json::json!(production)], namespace, client)
+        .await
+    {
         Ok(resp) => {
             let rows = resp["result"]["content"]
                 .as_array()
@@ -2245,11 +2263,15 @@ pub async fn resolve_storage_impl(
     class: &str,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
-    let escaped = class.replace('"', "");
-    let sql = format!(
-        "SELECT Name, Type, DataLocation, IdLocation, IndexLocation FROM %Dictionary.CompiledStorage WHERE parent='{escaped}'"
-    );
-    match iris.query(&sql, vec![], namespace, client).await {
+    if let Err(e) = validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
+    let sql = "SELECT Name, Type, DataLocation, IdLocation, IndexLocation \
+               FROM %Dictionary.CompiledStorage WHERE parent = ?";
+    match iris
+        .query(sql, vec![serde_json::json!(class)], namespace, client)
+        .await
+    {
         Ok(resp) => {
             let rows = resp["result"]["content"]
                 .as_array()

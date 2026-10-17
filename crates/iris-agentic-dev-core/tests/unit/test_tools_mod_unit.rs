@@ -2430,8 +2430,11 @@ fn build_superclass_probe_contains_class_name() {
     assert!(code.contains("##class(%Dictionary.ClassDefinition)"));
 }
 
+/// This test used to pin `My\"Class`, the backslash escape ObjectScript does not have, so the quote
+/// still closed the literal (137). A quote is doubled.
 #[test]
 fn build_superclass_probe_escapes_quotes() {
     let code = build_superclass_probe(r#"My"Class"#);
-    assert!(code.contains(r#"My\"Class"#));
+    assert!(code.contains(r#"My""Class"#), "{code}");
+    assert!(!code.contains(r#"My\"Class"#), "{code}");
 }

@@ -46,6 +46,7 @@ mod test_generator_device_live;
 mod test_generator_false_success_live;
 mod test_handlers_live;
 mod test_hints_replay_129_live;
+mod test_injection_137_live;
 mod test_interop_depth_live;
 mod test_iris_admin_observability_live;
 mod test_iris_audit_live;
