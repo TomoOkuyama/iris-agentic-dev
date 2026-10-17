@@ -185,7 +185,6 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	6090a5
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	03cb23cd897c	# splices "{name}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/admin_tools.rs	d20358afde82	# splices "{run_id}" inside a quote of generated code; caller text there
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/dict.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	8e726b51967b	# splices \"{STATUS_ERROR_MARKER}\" inside a quote of generated code; ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	7b607dfba908	# splices \"{u}\" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/doc.rs	ab9c82b84919	# splices \"{p}\" inside a quote of generated code; caller text there ca

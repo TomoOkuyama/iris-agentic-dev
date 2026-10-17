@@ -305,7 +305,7 @@ async fn detect_bpl_dtl_routing(
 
     let xdata_block = if is_bpl { "BPL" } else { "DTL" };
     let ext = if is_bpl { "bpl" } else { "dtl" };
-    let export_item = format!("{}.{}", class_name.replace('"', "\\\""), ext);
+    let export_item = format!("{}.{}", crate::objectscript::os_lit_inner(class_name), ext);
     let export_code = format!(
         "Set stream = ##class(%Stream.GlobalCharacter).%New() \
          Do $system.OBJ.ExportToStream(\"{}\",stream,,\"c\") \

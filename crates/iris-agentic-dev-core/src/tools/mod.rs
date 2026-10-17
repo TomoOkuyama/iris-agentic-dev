@@ -1840,6 +1840,38 @@ pub fn build_count_query(table: Option<&str>, query: Option<&str>) -> String {
     }
 }
 
+/// `build_count_query`, refused when the table is not a table name or the query is not a read.
+/// The count mode used to skip both checks the other modes apply (137).
+pub fn count_query_checked(
+    table: Option<&str>,
+    query: Option<&str>,
+) -> Result<String, serde_json::Value> {
+    if query.is_none() {
+        if let Some(t) = table {
+            crate::objectscript::validate_sql_identifier(t)?;
+        }
+    }
+    if let Some(q) = query {
+        if q.contains(';') {
+            return Err(serde_json::json!({
+                "success": false,
+                "error_code": "INVALID_PARAMS",
+                "error": "mode=\"count\" takes one SELECT; ';' is not allowed",
+            }));
+        }
+    }
+    let sql = build_count_query(table, query);
+    validate_read_only_sql(&sql).map_err(|kw| {
+        serde_json::json!({
+            "success": false,
+            "error_code": "SQL_WRITE_BLOCKED",
+            "error": format!("mode=\"count\" counts a read; '{kw}' is not allowed"),
+            "blocked_keyword": kw,
+        })
+    })?;
+    Ok(sql)
+}
+
 /// Clamps `max_rows_affected` for `iris_query` `mode="write"` UPDATE/DELETE pre-checks.
 /// `None` or `Some(0)` map to the default (1000); values above 10000 are clamped to 10000.
 pub fn clamp_max_rows_affected(value: Option<u32>) -> u32 {
@@ -1950,7 +1982,10 @@ async fn iris_query_count(
         );
     }
 
-    let count_sql = build_count_query(table, query);
+    let count_sql = match count_query_checked(table, query) {
+        Ok(sql) => sql,
+        Err(e) => return err_result(e),
+    };
     let query_url = iris.versioned_ns_url(namespace, "/action/query");
     let resp = client
         .post(&query_url)

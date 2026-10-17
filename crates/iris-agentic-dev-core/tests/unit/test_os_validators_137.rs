@@ -442,9 +442,21 @@ async fn execute_method_checks_names_before_any_call() {
         server: None,
     };
     for (class, method, code) in [
-        ("%SYSTEM.OBJ).Delete(\"X\") Set z=##class(%SYSTEM.OBJ", "Load", "INVALID_CLASS_NAME"),
-        ("%SYSTEM.Version", "GetVersion() Kill ^Y Set z=1", "INVALID_METHOD_NAME"),
-        ("%SYSTEM.Version", "GetVersion()\nKill ^Y", "INVALID_METHOD_NAME"),
+        (
+            "%SYSTEM.OBJ).Delete(\"X\") Set z=##class(%SYSTEM.OBJ",
+            "Load",
+            "INVALID_CLASS_NAME",
+        ),
+        (
+            "%SYSTEM.Version",
+            "GetVersion() Kill ^Y Set z=1",
+            "INVALID_METHOD_NAME",
+        ),
+        (
+            "%SYSTEM.Version",
+            "GetVersion()\nKill ^Y",
+            "INVALID_METHOD_NAME",
+        ),
     ] {
         let r = handle_iris_execute_method(&iris, &client, &run(class, method))
             .await
@@ -452,5 +464,34 @@ async fn execute_method_checks_names_before_any_call() {
         let text = r.content.first().unwrap().as_text().unwrap().text.clone();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["error_code"], code, "{class} {method}: {v}");
+    }
+}
+
+/// UNSURE, iris_query mode=count: the table was spliced as an identifier unchecked, and the query
+/// wrapped as a subquery without the read-only check the other modes apply.
+#[test]
+fn count_query_is_checked_like_a_read() {
+    use iris_agentic_dev_core::tools::count_query_checked;
+    assert_eq!(
+        count_query_checked(Some("Sample.Person"), None).unwrap(),
+        "SELECT COUNT(*) FROM Sample.Person"
+    );
+    assert!(count_query_checked(None, Some("SELECT ID FROM Sample.Person")).is_ok());
+    for (t, q) in [
+        (Some("Sample.Person WHERE 1=(SELECT 1)"), None),
+        (Some("X; DROP TABLE Y"), None),
+        (None, Some("SELECT 1) t; DELETE FROM Sample.Person --")),
+        (None, Some("DELETE FROM Sample.Person")),
+    ] {
+        let e = count_query_checked(t, q).expect_err(&format!("{t:?} {q:?}"));
+        assert!(
+            [
+                "INVALID_SQL_IDENTIFIER",
+                "SQL_WRITE_BLOCKED",
+                "INVALID_PARAMS"
+            ]
+            .contains(&e["error_code"].as_str().unwrap_or("")),
+            "{e}"
+        );
     }
 }
