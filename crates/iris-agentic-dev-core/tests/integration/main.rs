@@ -48,6 +48,7 @@ mod test_handlers_live;
 mod test_hints_replay_129_live;
 mod test_injection_137_live;
 mod test_interop_depth_live;
+mod test_interop_ui_136_live;
 mod test_iris_admin_observability_live;
 mod test_iris_audit_live;
 mod test_iris_doc_depth_live;
