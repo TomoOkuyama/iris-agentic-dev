@@ -59,9 +59,15 @@ pub async fn global_preview_impl(
     params: GlobalPreviewParams,
     confirm_tokens: &tokio::sync::Mutex<std::collections::HashMap<String, ConfirmEntry>>,
 ) -> Result<CallToolResult, McpError> {
-    use crate::tools::global::{build_global_ref, normalize_global_name};
+    use crate::tools::global::{build_global_ref, normalize_global_name, validate_global_name};
 
     let name = normalize_global_name(&params.global);
+    if let Err(e) = validate_global_name(&name) {
+        return err_json(
+            "INVALID_GLOBAL_NAME",
+            e["message"].as_str().unwrap_or("invalid global name"),
+        );
+    }
     let global_ref = build_global_ref(&name, &[]);
     let ns = params.iris.namespace.clone();
 
@@ -170,8 +176,14 @@ pub async fn global_kill_impl(
     params: GlobalKillParams,
     confirm_tokens: &tokio::sync::Mutex<std::collections::HashMap<String, ConfirmEntry>>,
 ) -> Result<CallToolResult, McpError> {
-    use crate::tools::global::normalize_global_name;
+    use crate::tools::global::{normalize_global_name, validate_global_name};
     let name = normalize_global_name(&params.global);
+    if let Err(e) = validate_global_name(&name) {
+        return err_json(
+            "INVALID_GLOBAL_NAME",
+            e["message"].as_str().unwrap_or("invalid global name"),
+        );
+    }
 
     // Token validation
     let entry = {

@@ -1300,3 +1300,47 @@ fn build_set_objectscript_mixed_special_chars() {
     // Quote should be doubled, everything else verbatim
     assert!(code.contains(r#"$ZV\$ZERROR%SYS""key"#));
 }
+
+// ── global_name validation: the name is spliced into ObjectScript ─────────────
+
+#[test]
+fn global_names_iris_accepts_pass() {
+    use iris_agentic_dev_core::tools::global::validate_global_name;
+    for name in [
+        "MyApp",
+        "IrisDevTest.G146",
+        "%SYS",
+        "Ens.MessageBodyD",
+        "IRIS.Temp.Thing1",
+        "a",
+        "A1.B2.C3",
+    ] {
+        assert!(validate_global_name(name).is_ok(), "{name} should pass");
+    }
+}
+
+#[test]
+fn global_names_that_carry_code_fail() {
+    use iris_agentic_dev_core::tools::global::validate_global_name;
+    for name in [
+        "X) Kill ^Y Set q=$Get(^X",
+        "X\" Kill ^Y Set z=\"",
+        "X Kill ^Y",
+        "X(\"a\")",
+        "^X",
+        "|\"USER\"|X",
+        "1X",
+        ".X",
+        "X.",
+        "X..Y",
+        "%%X",
+        "X%",
+        "",
+        "X\nKill ^Y",
+        "X,Y",
+        "@X",
+    ] {
+        let err = validate_global_name(name).expect_err(name);
+        assert_eq!(err["error_code"], "INVALID_GLOBAL_NAME", "{name}");
+    }
+}

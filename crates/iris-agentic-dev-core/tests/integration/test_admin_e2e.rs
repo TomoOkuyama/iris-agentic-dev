@@ -708,3 +708,49 @@ async fn e2e_import_servers() {
         "skipped must be a number, got: {v}"
     );
 }
+
+/// `global_preview` splices the name into `Set gRef="..."`, so a quote in it ended the string and
+/// ran what followed. The name must be refused before any IRIS call, and the sentinel must survive.
+#[tokio::test]
+#[ignore]
+async fn e2e_global_preview_refuses_a_name_that_carries_code() {
+    use iris_agentic_dev_core::tools::admin_tools::{global_preview_impl, GlobalPreviewParams};
+    use tokio::sync::Mutex;
+
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    let iris = Arc::new(conn);
+    let client = Arc::new(client);
+    let setup = r#" Set ^IrisDevTest.G136PreviewVictim = "still here"
+ Write "ok",$C(10)"#;
+    let _ = iris.execute_via_generator(setup, "USER", &client).await;
+
+    let confirm_tokens = Mutex::new(std::collections::HashMap::new());
+    let result = global_preview_impl(
+        GlobalPreviewParams {
+            global: r#"IrisDevTest.G136P" Kill ^IrisDevTest.G136PreviewVictim Set z=""#.to_string(),
+            server: None,
+            count: 5,
+            iris: Arc::clone(&iris),
+            client: Arc::clone(&client),
+        },
+        &confirm_tokens,
+    )
+    .await
+    .expect("returns a result");
+    let v = parse_json(result);
+
+    let check = r#" Write $Get(^IrisDevTest.G136PreviewVictim,"GONE"),$C(10)
+ Kill ^IrisDevTest.G136PreviewVictim"#;
+    let after = iris
+        .execute_via_generator(check, "USER", &client)
+        .await
+        .unwrap_or_default();
+    assert_eq!(v["error_code"], "INVALID_GLOBAL_NAME", "got: {v}");
+    assert!(
+        after.contains("still here"),
+        "the preview killed a global: {after}"
+    );
+}

@@ -486,3 +486,53 @@ async fn test_get_subtree_includes_the_base_nodes_own_value() {
         "a valueless node emits only its child: {r10}"
     );
 }
+
+// ── global_name is code, not data: a read must not run what the name smuggles in ──
+
+#[tokio::test]
+#[ignore]
+async fn test_get_with_a_crafted_global_name_runs_nothing() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Set ^IrisDevTest.G136Victim = "still here"
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    // Closes the $Get, kills the sentinel, reopens a $Get: valid ObjectScript once interpolated.
+    let crafted = "IrisDevTest.G136X) Kill ^IrisDevTest.G136Victim Set q=$Get(^IrisDevTest.G136X";
+    for subtree in [false, true] {
+        let p = IrisGlobalParams {
+            subtree: Some(subtree),
+            ..make_params("get", crafted)
+        };
+        let r = handle_iris_global(&conn, &client, &p, Ok(())).await;
+        assert_eq!(
+            r["error_code"], "INVALID_GLOBAL_NAME",
+            "subtree={subtree}: {r}"
+        );
+    }
+    let list = make_params("list", crafted);
+    let r = handle_iris_global(&conn, &client, &list, Ok(())).await;
+    assert_eq!(r["error_code"], "INVALID_GLOBAL_NAME", "list: {r}");
+
+    let check = IrisGlobalParams {
+        ..make_params("get", "IrisDevTest.G136Victim")
+    };
+    let still = handle_iris_global(&conn, &client, &check, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G136Victim
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    assert_eq!(
+        still["value"], "still here",
+        "a read killed a global: {still}"
+    );
+}

@@ -39,6 +39,33 @@ pub fn validate_subscripts(subscripts: &[String]) -> Result<(), serde_json::Valu
 // Global name normalization
 // ---------------------------------------------------------------------------
 
+static GLOBAL_NAME_RE: OnceLock<Regex> = OnceLock::new();
+
+/// Validate a global name (after [`normalize_global_name`]) before it is spliced into ObjectScript.
+///
+/// The name lands in generated code as `^<name>`, so anything beyond IRIS's own name syntax is
+/// code, not a name: `X) Kill ^Y Set q=$Get(^X` turned a read-only subtree `get` into a `Kill`.
+/// IRIS syntax: an optional leading `%`, a letter, then letters and digits, with single periods
+/// between them. The namespace is a separate parameter, so extended references are refused too.
+pub fn validate_global_name(name: &str) -> Result<(), serde_json::Value> {
+    let re = GLOBAL_NAME_RE.get_or_init(|| {
+        Regex::new(r"^%?[A-Za-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)*$").expect("valid regex")
+    });
+    if re.is_match(name) {
+        return Ok(());
+    }
+    Err(serde_json::json!({
+        "success": false,
+        "error_code": "INVALID_GLOBAL_NAME",
+        "message": format!(
+            "'{name}' is not a global name. A global name is an optional %, a letter, then letters \
+             and digits with single periods between them (MyApp.Data, %SYS). Pass the namespace in \
+             'namespace' and subscripts in 'subscripts', not in the name."
+        ),
+        "global_name": name,
+    }))
+}
+
 /// Strip a leading `^` from a global name. `^MyApp` → `MyApp`.
 pub fn normalize_global_name(name: &str) -> String {
     name.strip_prefix('^').unwrap_or(name).to_string()
@@ -331,6 +358,9 @@ pub async fn handle_iris_global(
     }
 
     let name = normalize_global_name(&params.global_name);
+    if let Err(e) = validate_global_name(&name) {
+        return e;
+    }
     let gref = build_global_ref(&name, &subs);
     let ns = params
         .namespace
