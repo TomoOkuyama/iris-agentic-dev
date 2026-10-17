@@ -892,7 +892,8 @@ impl IrisConnection {
 
         use tokio::io::AsyncWriteExt;
 
-        let remote_cmd = format!("docker exec -i {container} iris session IRIS -U {namespace}");
+        let remote_cmd = build_ssh_remote_command(&container, namespace, ssh_host)
+            .map_err(|e| anyhow::anyhow!(e))?;
         let mut child = tokio::process::Command::new("ssh")
             .args(["-o", "StrictHostKeyChecking=no", ssh_host, &remote_cmd])
             .stdin(std::process::Stdio::piped())
@@ -1295,6 +1296,43 @@ impl Drop for ScratchGuard {
         });
         let _ = worker.join();
     }
+}
+
+/// The command `execute_ssh` hands to the remote shell. The container and namespace are checked
+/// against their own syntax and single-quoted, and a host that starts with `-` is refused, since ssh
+/// reads it as an option (`-oProxyCommand=...` runs a local command). Before this the parts went into
+/// the remote shell unquoted, outside every IRIS gate (137).
+pub fn build_ssh_remote_command(
+    container: &str,
+    namespace: &str,
+    ssh_host: &str,
+) -> Result<String, String> {
+    let container_ok = !container.is_empty()
+        && container
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && container
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    if !container_ok {
+        return Err(format!(
+            "INVALID_CONTAINER: '{container}' is not a container name (letters, digits, _ . -, \
+             starting with a letter or digit)"
+        ));
+    }
+    if let Err(e) = crate::objectscript::validate_namespace(namespace) {
+        return Err(e["message"]
+            .as_str()
+            .unwrap_or("INVALID_NAMESPACE")
+            .to_string());
+    }
+    if ssh_host.is_empty() || ssh_host.starts_with('-') || ssh_host.contains(char::is_whitespace) {
+        return Err(format!("INVALID_SSH_HOST: '{ssh_host}' is not a host name"));
+    }
+    Ok(format!(
+        "docker exec -i '{container}' iris session IRIS -U '{namespace}'"
+    ))
 }
 
 #[cfg(test)]

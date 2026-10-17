@@ -350,3 +350,28 @@ fn literal_kill_check_reads_every_argument() {
         assert!(!contains_global_kill(code), "{code}");
     }
 }
+
+/// B1: the ssh route built a remote shell command from the container and namespace with no
+/// quoting, outside every IRIS gate. A host starting with `-` would be read by ssh as an option.
+#[test]
+fn ssh_remote_command_is_built_from_checked_parts() {
+    use iris_agentic_dev_core::iris::connection::build_ssh_remote_command;
+    assert_eq!(
+        build_ssh_remote_command("iris-dev-iris", "USER", "build-host").unwrap(),
+        "docker exec -i 'iris-dev-iris' iris session IRIS -U 'USER'"
+    );
+    assert!(build_ssh_remote_command("iris_1.a", "%SYS", "user@host.example").is_ok());
+    for (c, ns, host) in [
+        ("x; touch /tmp/iad137", "USER", "h"),
+        ("x$(id)", "USER", "h"),
+        ("iris", "USER; id", "h"),
+        ("iris", "USER", "-oProxyCommand=id"),
+        ("-x", "USER", "h"),
+        ("", "USER", "h"),
+    ] {
+        assert!(
+            build_ssh_remote_command(c, ns, host).is_err(),
+            "{c:?} {ns:?} {host:?}"
+        );
+    }
+}
