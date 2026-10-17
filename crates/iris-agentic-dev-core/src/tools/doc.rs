@@ -1883,11 +1883,20 @@ pub async fn handle_iris_execute_method(
         }
     }
 
-    // Build CSV args with ObjectScript double-quote escaping
+    // The denylist above caught three characters; `X).Delete("Y") Set z=##class(X` has none of
+    // them and named a second call. Both are spliced bare, so both must be names (137).
+    if let Err(e) = crate::objectscript::validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
+    if let Err(e) = crate::objectscript::validate_method_name(method) {
+        return crate::tools::err_result(e);
+    }
+
+    // Arguments are values: os_str_expr also keeps a newline from ending the line of code.
     let args_csv: String = p
         .args
         .iter()
-        .map(|a| format!("\"{}\"", a.replace('"', "\"\"")))
+        .map(|a| crate::objectscript::os_str_expr(a))
         .collect::<Vec<_>>()
         .join(",");
 

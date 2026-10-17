@@ -1311,6 +1311,40 @@ Write tMember,"|",tName,"|",tType,"|",tPrimary"#;
 
 // ── iris_mirror_add_async_impl (097) ─────────────────────────────────────────
 
+/// The ObjectScript for `iris_admin action=mirror_add_async`. The names go into literals and are
+/// escaped for them (137); the port and member type are numbers.
+pub fn build_mirror_add_async_code(
+    mirror_name: &str,
+    primary_host: &str,
+    primary_port: u16,
+    instance_name: &str,
+    async_member_type: u8,
+) -> String {
+    let mirror_name = crate::objectscript::os_lit_inner(mirror_name);
+    let primary_host = crate::objectscript::os_lit_inner(primary_host);
+    let instance_name = crate::objectscript::os_lit_inner(instance_name);
+    format!(
+        r#"ZN "%SYS"
+Set tMember=##class(%SYSTEM.Mirror).IsMember()
+If tMember'=0 {{
+  Write "ALREADY_MEMBER|",##class(%SYSTEM.Mirror).GetMirrorNames(),!
+  Quit
+}}
+Set tLocalInfo="",tSSLInfo=""
+; JoinMirrorAsAsyncMember opens sockets to the primary and can leave the current device pointed at
+; one of them. The generator captures output by making a temp file the current device, so a moved
+; $IO sends every Write below into the void and the caller sees an empty success. Restore it.
+Set tIO=$IO
+Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name}","","{instance_name}","{primary_host}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
+Use tIO
+If $$$ISERR(tSC) {{
+  Write "ERROR:",$System.Status.GetErrorText(tSC),!
+}} Else {{
+  Write "OK",!
+}}"#
+    )
+}
+
 pub async fn iris_mirror_add_async_impl(
     iris: Option<&IrisConnection>,
     client: &reqwest::Client,
@@ -1330,25 +1364,12 @@ pub async fn iris_mirror_add_async_impl(
             }))
         }
     };
-    let code = format!(
-        r#"ZN "%SYS"
-Set tMember=##class(%SYSTEM.Mirror).IsMember()
-If tMember'=0 {{
-  Write "ALREADY_MEMBER|",##class(%SYSTEM.Mirror).GetMirrorNames(),!
-  Quit
-}}
-Set tLocalInfo="",tSSLInfo=""
-; JoinMirrorAsAsyncMember opens sockets to the primary and can leave the current device pointed at
-; one of them. The generator captures output by making a temp file the current device, so a moved
-; $IO sends every Write below into the void and the caller sees an empty success. Restore it.
-Set tIO=$IO
-Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name}","","{instance_name}","{primary_host}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
-Use tIO
-If $$$ISERR(tSC) {{
-  Write "ERROR:",$System.Status.GetErrorText(tSC),!
-}} Else {{
-  Write "OK",!
-}}"#
+    let code = build_mirror_add_async_code(
+        mirror_name,
+        primary_host,
+        primary_port,
+        instance_name,
+        async_member_type,
     );
     match iris.execute_via_generator(&code, "%SYS", client).await {
         Ok(out) => {
@@ -1495,14 +1516,12 @@ pub fn parse_max_size_mb(s: &str) -> Option<i64> {
 
 // ── iris_namespace_create (T084) — gated in call_tool, not here (085) ─────────
 
-pub async fn iris_namespace_create_impl(
-    iris: &IrisConnection,
-    client: &reqwest::Client,
-    name: &str,
-    db_path: Option<&str>,
-) -> Result<CallToolResult, McpError> {
-    let db = db_path.unwrap_or(name);
-    let code = format!(
+/// The ObjectScript for `iris_namespace_create`. The caller checks `name` as a namespace name; both
+/// values are escaped for the literals they land in (137).
+pub fn build_namespace_create_code(name: &str, db: &str) -> String {
+    let name = crate::objectscript::os_lit_inner(name);
+    let db = crate::objectscript::os_lit_inner(db);
+    format!(
         r#"Set props("Name")="{name}"
 Set props("Globals")="{db}"
 Set props("Routines")="{name}"
@@ -1517,7 +1536,20 @@ If $$$ISERR(tSC) {{
 }} Else {{
   Write "CREATED",!
 }}"#
-    );
+    )
+}
+
+pub async fn iris_namespace_create_impl(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    name: &str,
+    db_path: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    let db = db_path.unwrap_or(name);
+    if let Err(e) = crate::objectscript::validate_namespace(name) {
+        return crate::tools::err_result(e);
+    }
+    let code = build_namespace_create_code(name, db);
     match iris.execute_via_generator(&code, "%SYS", client).await {
         Ok(out) => {
             let out = out.trim();

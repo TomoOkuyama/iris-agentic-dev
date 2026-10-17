@@ -213,10 +213,10 @@ pub async fn interop_production_status_impl(
 pub fn build_production_start_code(production: &str) -> String {
     format!(
         r#"Set tIO=$IO
-Set sc=##class(Ens.Director).StartProduction("{}")
+Set sc=##class(Ens.Director).StartProduction({})
 Use tIO
 If $System.Status.IsError(sc) {{ Write "ERROR:"_$System.Status.GetErrorText(sc) }} Else {{ Write "OK" }}"#,
-        production
+        crate::objectscript::os_str_expr(production)
     )
 }
 

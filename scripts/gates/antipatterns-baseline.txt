@@ -205,18 +205,16 @@ objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	9742722368
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	8b920f280fa6	# splices '{c}' inside a quote of generated code; caller text there can 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	90bf15d9f0f2	# splices '{e_esc}' inside a quote of generated code; caller text there 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/interop.rs	90bf15d9f0f2	# splices '{e_esc}' inside a quote of generated code; caller text there 
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	7d31e7fddd38	# splices "{pattern}" inside a quote of generated code; caller text ther
+objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	48cf50a61736	# splices "{lit}" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	3a321716999b	# splices "{flags}" inside a quote of generated code; caller text there 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	c03df5cf5a31	# splices "{token}" inside a quote of generated code; caller text there 
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	7d31e7fddd38	# splices "{pattern}" inside a quote of generated code; caller text ther
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	7d31e7fddd38	# splices "{pattern}" inside a quote of generated code; caller text ther
+objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	48cf50a61736	# splices "{lit}" inside a quote of generated code; caller text there ca
+objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	48cf50a61736	# splices "{lit}" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	3a321716999b	# splices "{flags}" inside a quote of generated code; caller text there 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	c03df5cf5a31	# splices "{token}" inside a quote of generated code; caller text there 
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	16ef255c3ab6	# splices "{cls}" inside a quote of generated code; caller text there ca
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	16f24eefc965	# splices "{count_sql}" inside a quote of generated code; caller text th
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	eba288af0719	# splices "{sql}" inside a quote of generated code; caller text there ca
-objectscript-splice	crates/iris-agentic-dev-core/src/tools/mod.rs	9f810cdb438f	# escapes a quote with a backslash; ObjectScript has no backslash escape
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/observability.rs	d153d5c9f2f1	# splices "{search}" inside a quote of generated code; caller text there
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/observability.rs	c4333457bd38	# splices "{from}" inside a quote of generated code; caller text there c
 objectscript-splice	crates/iris-agentic-dev-core/src/tools/observability.rs	c4333457bd38	# splices "{from}" inside a quote of generated code; caller text there c

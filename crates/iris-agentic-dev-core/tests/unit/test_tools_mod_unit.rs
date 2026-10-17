@@ -2417,7 +2417,8 @@ fn build_test_run_code_quote_escaping() {
         "tok5",
         false,
     );
-    assert!(code.contains(r#"My\"App.Tests"#));
+    // Used to pin `My\"App.Tests`, a backslash escape ObjectScript does not have (137).
+    assert!(code.contains(r#"My""App.Tests"#), "{code}");
 }
 
 // ── build_superclass_probe ────────────────────────────────────────────────────

@@ -375,3 +375,82 @@ fn ssh_remote_command_is_built_from_checked_parts() {
         );
     }
 }
+
+/// B2: iris_test put its pattern into RunTest's literal with a backslash escape, and into
+/// `##class(<pattern>).Run()` bare.
+#[test]
+fn test_run_code_keeps_the_pattern_data() {
+    use iris_agentic_dev_core::tools::build_test_run_code;
+    let crafted = "X\") Kill ^IrisDevTest.S137 Set z=(\"";
+    for test_production in [false, true] {
+        let code = build_test_run_code(crafted, "/verbose=1", "tok", test_production);
+        assert!(!code.contains("##class(X\")"), "{code}");
+        assert!(code.contains("X\"\")"), "the quote must be doubled: {code}");
+        assert!(!code.contains("\\\""), "no backslash escape: {code}");
+    }
+    let dir = build_test_run_code("Pkg/Dir\" Kill ^Y Set z=\"", "/v", "t", false);
+    assert!(!dir.contains("Dir\" Kill"), "{dir}");
+    let ok = build_test_run_code("MyApp.Tests.Prod", "/v", "t", true);
+    assert!(ok.contains("##class(MyApp.Tests.Prod).Run()"), "{ok}");
+}
+
+const CRAFTED_QUOTE: &str = "X\" Kill ^IrisDevTest.S137 Set z=\"";
+
+/// B2/B3: write- and destructive-tier tools whose splices reach past their own operation.
+#[test]
+fn write_tier_builders_keep_parameters_data() {
+    use iris_agentic_dev_core::tools::admin_tools::{
+        build_mirror_add_async_code, build_namespace_create_code,
+    };
+    use iris_agentic_dev_core::tools::interop::build_production_start_code;
+    let codes = [
+        build_production_start_code(CRAFTED_QUOTE),
+        build_mirror_add_async_code(CRAFTED_QUOTE, CRAFTED_QUOTE, 1972, CRAFTED_QUOTE, 2),
+        build_namespace_create_code("NS1", CRAFTED_QUOTE),
+    ];
+    for code in codes {
+        assert!(!code.contains("X\" Kill"), "{code}");
+        assert!(
+            code.contains("X\"\" Kill"),
+            "the quote must be doubled: {code}"
+        );
+    }
+    assert!(build_production_start_code("Demo.Production").contains("\"Demo.Production\""));
+}
+
+/// B2: iris_execute_method spliced class and method bare into `##class(<class>).<method>(...)`
+/// behind a three-character denylist, and its arguments with doubled quotes but raw newlines.
+#[tokio::test]
+async fn execute_method_checks_names_before_any_call() {
+    use iris_agentic_dev_core::iris::connection::{DiscoverySource, IrisConnection};
+    use iris_agentic_dev_core::tools::doc::handle_iris_execute_method;
+    use iris_agentic_dev_core::tools::IrisExecuteMethodParams;
+    // Port 1 answers nothing: a refusal must come before any request is made.
+    let iris = IrisConnection::new(
+        "http://127.0.0.1:1".to_string(),
+        "USER",
+        "u".to_string(),
+        "p".to_string(),
+        DiscoverySource::EnvVar,
+    );
+    let client = reqwest::Client::new();
+    let run = |class: &str, method: &str| IrisExecuteMethodParams {
+        class: class.to_string(),
+        method: method.to_string(),
+        args: vec![],
+        namespace: None,
+        server: None,
+    };
+    for (class, method, code) in [
+        ("%SYSTEM.OBJ).Delete(\"X\") Set z=##class(%SYSTEM.OBJ", "Load", "INVALID_CLASS_NAME"),
+        ("%SYSTEM.Version", "GetVersion() Kill ^Y Set z=1", "INVALID_METHOD_NAME"),
+        ("%SYSTEM.Version", "GetVersion()\nKill ^Y", "INVALID_METHOD_NAME"),
+    ] {
+        let r = handle_iris_execute_method(&iris, &client, &run(class, method))
+            .await
+            .expect("Ok");
+        let text = r.content.first().unwrap().as_text().unwrap().text.clone();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["error_code"], code, "{class} {method}: {v}");
+    }
+}

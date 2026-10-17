@@ -1327,29 +1327,28 @@ pub fn build_test_run_code(
     token: &str,
     is_test_production: bool,
 ) -> String {
-    let safe_pattern = pattern.replace('"', "\\\"");
-    let is_class_pattern = !safe_pattern.contains('/') && !safe_pattern.contains('\\');
+    use crate::objectscript::{os_lit_inner, validate_class_name};
+    let is_class_pattern = !pattern.contains('/') && !pattern.contains('\\');
+    // The pattern goes inside literals below, so it is escaped for them; `.Run()` splices it bare
+    // as a class name, so that path needs a valid one (137).
+    let (lit, flags, token) = (
+        os_lit_inner(pattern),
+        os_lit_inner(flags),
+        os_lit_inner(token),
+    );
 
-    if is_test_production && is_class_pattern {
-        format!(r#"do ##class({pattern}).Run()"#, pattern = safe_pattern,)
+    if is_test_production && is_class_pattern && validate_class_name(pattern).is_ok() {
+        format!(r#"do ##class({pattern}).Run()"#)
     } else if is_class_pattern {
-        format!(
-            r#"do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
-            token = token,
-            pattern = safe_pattern,
-            flags = flags,
-        )
+        format!(r#"do ##class(%UnitTest.Manager).RunTest("{lit}","{flags}","{token}")"#)
     } else {
         format!(
             r#"set utRoot="/tmp/httest/"
 if '##class(%File).DirectoryExists(utRoot) {{ do ##class(%File).CreateDirectoryChain(utRoot) }}
-set pkgDir=utRoot_"{pattern}"_"/"
+set pkgDir=utRoot_"{lit}"_"/"
 if '##class(%File).DirectoryExists(pkgDir) {{ do ##class(%File).CreateDirectoryChain(pkgDir) }}
 set ^UnitTestRoot=utRoot
-do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
-            token = token,
-            pattern = safe_pattern,
-            flags = flags,
+do ##class(%UnitTest.Manager).RunTest("{lit}","{flags}","{token}")"#
         )
     }
 }
@@ -4092,7 +4091,8 @@ impl IrisTools {
 
         // Generate a UUID correlation token; used as UserParam in RunTest.
         let correlation_token = log_store::new_log_id();
-        let safe_pattern = p.pattern.replace('"', "\\\"");
+        // Escaped where it is spliced, in build_test_run_code and build_superclass_probe (137).
+        let safe_pattern = p.pattern.clone();
 
         // Detect whether the pattern is a compiled class name or a filesystem directory path.
         // Class names contain dots and no path separators: "ISC.sql.Tests", "MyApp.Tests.*"
