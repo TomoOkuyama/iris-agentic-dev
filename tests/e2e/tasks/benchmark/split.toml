@@ -74,6 +74,12 @@
 #   five production states, adapter against host settings, driving a service with `CreateBusinessService`).
 #   The ensemble tasks need `%EnsembleMgr.EnableNamespace("BENCHMARK",1)` on the container first.
 #
+# - **SKILL-67 to SKILL-69 are holdout from the day they were written (136, 2026-10-17).** They measure
+#   whether `ensemble-production` gets agents to write what the Portal's editors open: SKILL-67 rewrites a
+#   code-based process and its rules as BPL and a rule class with the behaviour kept (a lookalike of
+#   grievance-demo's IntakeBP), SKILL-68 a DTL, SKILL-69 a routing rule. A correctness check with no
+#   net-positive claim (136 Q4).
+#
 # - **SKILL-62 to SKILL-66 are holdout from the day they were written (135, 2026-10-12).** They measure
 #   `iris-ai-hub` on iad-aihub-iris (build 154), which lost its holdout when SKILL-24 and SKILL-25 were read:
 #   a one-entry XData policy that loads empty, `%CanExecute`'s bare-name argument, the `StreamChat` callback
@@ -205,4 +211,7 @@ holdout = [
   "SKILL-64",
   "SKILL-65",
   "SKILL-66",
+  "SKILL-67",
+  "SKILL-68",
+  "SKILL-69",
 ]

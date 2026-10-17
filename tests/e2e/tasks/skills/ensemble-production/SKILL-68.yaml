@@ -1,0 +1,84 @@
+id: SKILL-68
+prompt: |
+  Bench68.Map in the BENCHMARK namespace must turn a Bench68.In into a Bench68.Out: FullName is Name in
+  upper case, and Year is the first four characters of Dob. Today it returns an empty Bench68.Out. The
+  integration analysts maintain every transformation in the Management Portal's DTL Editor, so write
+  Bench68.Map as a transformation they can open and edit there. Keep the name Bench68.Map and leave it
+  compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench68.In
+    content: |
+      Class Bench68.In Extends Ens.Request
+      {
+
+      Property Name As %String;
+
+      Property Dob As %String;
+
+      }
+  - name: Bench68.Out
+    content: |
+      Class Bench68.Out Extends Ens.Response
+      {
+
+      Property FullName As %String;
+
+      Property Year As %String;
+
+      }
+  - name: Bench68.Map
+    content: |
+      Class Bench68.Map Extends Ens.DataTransform
+      {
+
+      ClassMethod Transform(source As Bench68.In, ByRef target As Bench68.Out) As %Status
+      {
+          Set target = ##class(Bench68.Out).%New()
+          Quit $$$OK
+      }
+
+      }
+check: |
+  try { set ok=0 set st=##class(%Dictionary.CompiledClass).%ExistsId("Bench68.Map")&&$classmethod("Bench68.Map","%Extends","Ens.DataTransformDTL")&&##class(%Dictionary.CompiledXData).%ExistsId("Bench68.Map||DTL") set a=##class(Bench68.In).%New() set a.Name="ada lovelace",a.Dob="1815-12-10" set sc=##class(Bench68.Map).Transform(a,.t) set ok=st&&$system.Status.IsOK(sc)&&$isobject($get(t))&&(t.FullName="ADA LOVELACE")&&(t.Year="1815") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench68.In
+    content: |
+      Class Bench68.In Extends Ens.Request
+      {
+
+      Property Name As %String;
+
+      Property Dob As %String;
+
+      }
+  - name: Bench68.Out
+    content: |
+      Class Bench68.Out Extends Ens.Response
+      {
+
+      Property FullName As %String;
+
+      Property Year As %String;
+
+      }
+  - name: Bench68.Map
+    content: |
+      Class Bench68.Map Extends Ens.DataTransformDTL [ DependsOn = (Bench68.In, Bench68.Out) ]
+      {
+
+      XData DTL [ XMLNamespace = "http://www.intersystems.com/dtl" ]
+      {
+      <transform sourceClass='Bench68.In' targetClass='Bench68.Out' create='new' language='objectscript'>
+      <assign value='$ZCONVERT(source.Name,"U")' property='target.FullName' action='set'/>
+      <assign value='$EXTRACT(source.Dob,1,4)' property='target.Year' action='set'/>
+      </transform>
+      }
+
+      }
+tags:
+  - dtl
+  - editor

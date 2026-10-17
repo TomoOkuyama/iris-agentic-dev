@@ -1,0 +1,176 @@
+id: SKILL-69
+prompt: |
+  The production Bench69.Prod in the BENCHMARK namespace sends every Ens.StringRequest from the service
+  Svc to the router Router (EnsLib.MsgRouter.RoutingEngine), whose BusinessRuleName setting names
+  Bench69.RouteRule. A message whose StringValue starts with "A" must go to the operation OpA, and every
+  other message to OpB. Today Bench69.RouteRule is a class method the router cannot use, so nothing
+  arrives at either operation. Make Bench69.RouteRule a routing rule the router uses and the analysts
+  can open in the Management Portal's Rule Editor. Keep the name Bench69.RouteRule, do not change the
+  production, the service or the operations, and leave no production running when you finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench69.Op
+    content: |
+      Class Bench69.Op Extends Ens.BusinessOperation
+      {
+
+      Method OnMessage(pReq As Ens.StringRequest, Output pResp As Ens.Response) As %Status
+      {
+          Set ^Bench69.Out(..%ConfigName, $Increment(^Bench69.Out(..%ConfigName))) = pReq.StringValue
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench69.Svc
+    content: |
+      Class Bench69.Svc Extends Ens.BusinessService
+      {
+
+      Method OnProcessInput(pInput As Ens.StringRequest, Output pOutput As %RegisteredObject) As %Status
+      {
+          Quit ..SendRequestAsync("Router", pInput)
+      }
+
+      }
+  - name: Bench69.RouteRule
+    content: |
+      Class Bench69.RouteRule Extends %RegisteredObject
+      {
+
+      ClassMethod Target(pText As %String) As %String
+      {
+          Quit $Select($Extract(pText) = "A": "OpA", 1: "OpB")
+      }
+
+      }
+  - name: Bench69.Prod
+    content: |
+      Class Bench69.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench69.Prod">
+      <Item Name="Svc" ClassName="Bench69.Svc" PoolSize="0" Enabled="true"/>
+      <Item Name="Router" ClassName="EnsLib.MsgRouter.RoutingEngine" PoolSize="1" Enabled="true">
+      <Setting Target="Host" Name="BusinessRuleName">Bench69.RouteRule</Setting>
+      </Item>
+      <Item Name="OpA" ClassName="Bench69.Op" PoolSize="1" Enabled="true"/>
+      <Item Name="OpB" ClassName="Bench69.Op" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+  - name: Bench69.Hook
+    content: |
+      Class Bench69.Hook Extends %RegisteredObject
+      {
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench69.Out, ^Bench69.Done
+      }
+
+      /// Runs in its own process, so the device the production moves is not the caller's.
+      ClassMethod Run(pText As %String)
+      {
+          Set tSC = ##class(Ens.Director).CreateBusinessService("Svc", .tSvc)
+          If $System.Status.IsOK(tSC) { Set tSC = tSvc.ProcessInput(##class(Ens.StringRequest).%New(pText)) }
+          Set ^Bench69.Done(pText) = tSC
+      }
+
+      ClassMethod Send(pText As %String)
+      {
+          Job ..Run(pText)
+          For i = 1:1:50 {
+              If $Data(^Bench69.Done(pText)) { Quit }
+              Hang 0.2
+          }
+      }
+
+      ClassMethod Got(pOp As %String) As %String
+      {
+          Quit $Get(^Bench69.Out(pOp, 1))
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) set st=##class(%Dictionary.CompiledClass).%ExistsId("Bench69.RouteRule")&&$classmethod("Bench69.RouteRule","%Extends","Ens.Rule.Definition")&&($parameter("Bench69.RouteRule","RuleAssistClass")="EnsLib.MsgRouter.RuleAssist") do ##class(Bench69.Hook).Reset() set s1=##class(Ens.Director).StartProduction("Bench69.Prod") do ##class(Bench69.Hook).Send("Apple") do ##class(Bench69.Hook).Send("Banana") hang 3 set a=##class(Bench69.Hook).Got("OpA"),b=##class(Bench69.Hook).Got("OpB") set s2=##class(Ens.Director).StopProduction(10,0) set ok=st&&$system.Status.IsOK(s1)&&(a="Apple")&&(b="Banana") } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench69.Op
+    content: |
+      Class Bench69.Op Extends Ens.BusinessOperation
+      {
+
+      Method OnMessage(pReq As Ens.StringRequest, Output pResp As Ens.Response) As %Status
+      {
+          Set ^Bench69.Out(..%ConfigName, $Increment(^Bench69.Out(..%ConfigName))) = pReq.StringValue
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench69.Svc
+    content: |
+      Class Bench69.Svc Extends Ens.BusinessService
+      {
+
+      Method OnProcessInput(pInput As Ens.StringRequest, Output pOutput As %RegisteredObject) As %Status
+      {
+          Quit ..SendRequestAsync("Router", pInput)
+      }
+
+      }
+  - name: Bench69.RouteRule
+    content: |
+      Class Bench69.RouteRule Extends Ens.Rule.Definition
+      {
+
+      Parameter RuleAssistClass = "EnsLib.MsgRouter.RuleAssist";
+
+      XData RuleDefinition [ XMLNamespace = "http://www.intersystems.com/rule" ]
+      {
+      <ruleDefinition alias="" context="EnsLib.MsgRouter.RoutingEngine" production="Bench69.Prod">
+      <ruleSet name="" effectiveBegin="" effectiveEnd="">
+      <rule name="byFirstLetter">
+      <constraint name="msgClass" value="Ens.StringRequest"></constraint>
+      <when condition="StartsWith(Document.StringValue,&quot;A&quot;)">
+      <send transform="" target="OpA"></send>
+      <return></return>
+      </when>
+      <otherwise>
+      <send transform="" target="OpB"></send>
+      <return></return>
+      </otherwise>
+      </rule>
+      </ruleSet>
+      </ruleDefinition>
+      }
+
+      }
+  - name: Bench69.Prod
+    content: |
+      Class Bench69.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench69.Prod">
+      <Item Name="Svc" ClassName="Bench69.Svc" PoolSize="0" Enabled="true"/>
+      <Item Name="Router" ClassName="EnsLib.MsgRouter.RoutingEngine" PoolSize="1" Enabled="true">
+      <Setting Target="Host" Name="BusinessRuleName">Bench69.RouteRule</Setting>
+      </Item>
+      <Item Name="OpA" ClassName="Bench69.Op" PoolSize="1" Enabled="true"/>
+      <Item Name="OpB" ClassName="Bench69.Op" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) } catch { }
+tags:
+  - routing
+  - rule
+  - editor
