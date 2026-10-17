@@ -9243,12 +9243,13 @@ Methods:
             .get("server")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        let iris = self.resolve_server(server.as_deref()).await?;
         // Journal records carry global values, so the bulk-PHI gate that refuses the iris_admin
-        // route refuses this one too (137).
+        // route refuses this one too (137). After the server lookup, so a wrong server name is
+        // still reported as that.
         if let Some(refusal) = self.policy_refusal("journal_search", p.clone()) {
             return refusal;
         }
-        let iris = self.resolve_server(server.as_deref()).await?;
         let result = admin_tools::journal_search_impl(
             &iris,
             &self.client,

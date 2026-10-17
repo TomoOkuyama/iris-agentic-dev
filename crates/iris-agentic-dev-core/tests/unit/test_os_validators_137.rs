@@ -183,7 +183,7 @@ fn sql_identifiers() {
         "sql",
         validate_sql_identifier,
         "INVALID_SQL_IDENTIFIER",
-        &["a.b.c", "\"a\"\"b\"", "a b", "a.", ".a"],
+        &["a..c", "\"a\"\"b\"", "a b", "a.", ".a"],
     );
 }
 

@@ -116,16 +116,18 @@ async fn injection_137_a01_database_stats_db() {
 #[tokio::test]
 #[ignore]
 async fn injection_137_a02_journal_search_start_end() {
+    // Since B5 the bulk-PHI gate refuses the tool under the default policy before the timestamps
+    // are read; validate_timestamp behind it is for a connection that allows the tool.
     case(
         "journal_search",
         json!({"start": "@P"}),
-        Some("INVALID_TIMESTAMP"),
+        Some("DATA_POLICY_BLOCKED"),
     )
     .await;
     case(
         "journal_search",
         json!({"end": "@P"}),
-        Some("INVALID_TIMESTAMP"),
+        Some("DATA_POLICY_BLOCKED"),
     )
     .await;
 }

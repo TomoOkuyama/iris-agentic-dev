@@ -134,7 +134,10 @@ fn system_performance_honors_mode_run_id_and_profile() {
 }
 
 /// `max_entries` is the only journal filter that works (see the module docs), and it is the one this
-/// batch changes the type of: `"3"` used to be discarded in favour of the default 100.
+/// batch changed the type of. Since 137 the standalone tool answers to the bulk-PHI gate like the
+/// `iris_admin action=journal_search` route, so under the default `dataPolicy = "block"` it is refused
+/// before the handler reads `max_entries`. The refusal still shows the value passed the schema: a
+/// mistyped parameter is refused first, with its own code.
 #[test]
 #[ignore = "requires live IRIS (iris-dev-iris) and the built binary"]
 fn journal_search_honors_max_entries() {
@@ -142,7 +145,6 @@ fn journal_search_honors_max_entries() {
         return;
     };
     let mut mcp = McpSession::start(&live_env());
-
     for want in [2u64, 7] {
         let answer = call(
             &mut mcp,
@@ -150,9 +152,9 @@ fn journal_search_honors_max_entries() {
             serde_json::json!({"max_entries": want}),
         );
         assert_eq!(
-            answer.get("returned").and_then(|v| v.as_u64()),
-            Some(want),
-            "max_entries={want} must cap the scan: {answer}"
+            answer.get("error_code").and_then(|v| v.as_str()),
+            Some("DATA_POLICY_BLOCKED"),
+            "max_entries={want} must pass the schema and reach the gate: {answer}"
         );
     }
 }

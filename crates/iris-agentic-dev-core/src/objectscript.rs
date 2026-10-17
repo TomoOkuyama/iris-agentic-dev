@@ -195,11 +195,13 @@ pub fn validate_method_name(name: &str) -> Result<(), serde_json::Value> {
 }
 
 /// A SQL table reference: `Table` or `Schema.Table`, each part a plain identifier (an optional `%`,
-/// a letter or `_`, then letters, digits and `_`) or a quoted one with no quote inside.
+/// a letter or `_`, then letters, digits and `_`) or a quoted one with no quote inside. More than two
+/// parts pass too: `Pkg.Sub.Table` is a mistake IRIS answers with SQLCODE -30, and the
+/// `deep_package_table` hint explains that answer, so the name has to reach IRIS (129).
 pub fn validate_sql_identifier(name: &str) -> Result<(), serde_json::Value> {
     if check(
         &SQL_ID_RE,
-        r#"^("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*)(\.("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*))?$"#,
+        r#"^("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*)(\.("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*))*$"#,
         name,
     ) {
         return Ok(());
