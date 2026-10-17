@@ -1398,7 +1398,9 @@ pub enum IrisMessageBodyResponse {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BusinessRuleListOk {
     pub success: bool,
-    /// `{name, class_name, description, modified}` objects — free-form JSON.
+    /// `{name, class_name, kind, rule_type, description, modified}` objects. `kind` is `class`
+    /// (an Ens.Rule.Definition subclass, which the Rule Editor opens) or `legacy` (a row of the
+    /// pre-2012 Ens.Rule.RuleSet table). Free-form JSON.
     pub rules: Vec<serde_json::Value>,
 }
 
@@ -1406,11 +1408,29 @@ pub struct BusinessRuleListOk {
 pub struct BusinessRuleGetOk {
     pub success: bool,
     pub name: String,
+    /// `class` or `legacy`.
+    pub kind: String,
     pub description: serde_json::Value,
-    /// Placeholder `{}` entries, one per condition/action — the RuleSet's own condition/action
-    /// objects aren't introspected further, only counted. Left as free-form JSON.
+    /// For a rule class, `{rule, condition}` per `when`. For a legacy rule set, placeholder `{}`
+    /// entries, one per condition, only counted. Free-form JSON.
     pub conditions: Vec<serde_json::Value>,
+    /// For a rule class, `{rule, action: {type, property, target, transform, value}}`. For a legacy
+    /// rule set, placeholder `{}` entries. Free-form JSON.
     pub actions: Vec<serde_json::Value>,
+    /// Rule class only: the RuleAssistClass (`Ens.Rule.GeneralBusinessRuleAssist`,
+    /// `EnsLib.MsgRouter.RuleAssist`, ...), null when the class sets none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_type: Option<serde_json::Value>,
+    /// Rule class only: the rule type's short name (`general`, `routing`, ...).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_kind: Option<serde_json::Value>,
+    /// Rule class only: the context class the conditions are evaluated against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<serde_json::Value>,
+    /// Rule class only: `[{name, effective_begin, effective_end, rules: [{name, disabled, whens:
+    /// [{condition, actions}], otherwise}], actions}]`, the tree the Rule Editor shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_sets: Option<Vec<serde_json::Value>>,
 }
 
 /// `action=list` and `action=get` never share fields — two distinct success shapes.

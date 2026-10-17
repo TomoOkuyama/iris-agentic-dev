@@ -90,6 +90,7 @@ mod test_probe_server_offline;
 mod test_reload_pool;
 mod test_role_gate;
 mod test_role_gate_handlers;
+mod test_rule_class_parse;
 mod test_sa_schema_131;
 mod test_schema_tasks;
 mod test_scm_escaping;

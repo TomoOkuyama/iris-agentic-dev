@@ -2072,6 +2072,210 @@ If body.%IsA("Ens.StreamContainer") {{
     }
 }
 
+// ── Rule classes (Ens.Rule.Definition) ──────────────────────────────────────
+//
+// A rule written since 2012 is a class extending Ens.Rule.Definition with an XData RuleDefinition
+// block; that is what the Rule Editor opens. Ens.Rule.RuleSet is the table of the rule engine
+// before that, and holds nothing a current rule writes. Both are read: classes first, legacy rows
+// after, each tagged with its `kind`.
+//
+// The ObjectScript writes one `|`-separated line per element with the free text last, so a `||`
+// inside a condition survives `splitn`. Line breaks inside free text become spaces.
+
+/// Lists every class the Rule Editor would: `%Dictionary.ClassDefinition:SubclassOf`.
+pub fn build_rule_class_list_code() -> String {
+    [
+        r#"Set r=##class(%ResultSet).%New("%Dictionary.ClassDefinition:SubclassOf")"#,
+        r#"Set sc=r.Execute("Ens.Rule.Definition")"#,
+        r#"While r.Next() { Set c=r.GetData(1) Set d=##class(%Dictionary.ClassDefinition).%OpenId(c) Write "CLS|",$Parameter(c,"RuleAssistClass"),"|",$Select($IsObject(d)&&(d.TimeChanged'=""):$ZDateTime(d.TimeChanged,3),1:""),"|",c,"|",$Select($IsObject(d):$Translate($Piece(d.Description,$C(10)),$C(13)," "),1:""),$C(10) }"#,
+        r#"Write "DONE",$C(10)"#,
+    ]
+    .join("\n")
+}
+
+/// Writes `ACT|<scope>|type|property|target|transform|value` for each action in `coll`.
+fn rule_actions_code(scope: &str, coll: &str) -> String {
+    format!(
+        r#"For m=1:1:{coll}.Count() {{ Set x={coll}.GetAt(m) Set xc=$ClassName(x) Write "ACT|{scope}|",x.type,"|",$Select(x.%IsA("Ens.Rule.Model.assign"):x.property,1:""),"|",$Select(x.%IsA("Ens.Rule.Model.send"):x.target,1:""),"|",$Select(x.%IsA("Ens.Rule.Model.send"):x.transform,1:""),"|",$Select(##class(%Dictionary.CompiledProperty).%ExistsId(xc_"||value"):$Translate($Property(x,"value"),$C(13,10),"  "),1:""),$C(10) }}"#
+    )
+}
+
+/// Loads one rule class through the model the Rule Editor uses (`LoadFromClass`). Writes
+/// `NOTCLASS` when the name is not a compiled Ens.Rule.Definition subclass, so the caller can fall
+/// back to the legacy table.
+pub fn build_rule_class_get_code(class_name: &str) -> String {
+    let c = class_name.replace('"', "\"\"");
+    [
+        format!(r#"Set cls="{c}""#),
+        r#"If '##class(%Dictionary.CompiledClass).%ExistsId(cls) { Write "NOTCLASS",$C(10) Quit }"#.to_string(),
+        r#"If '$ClassMethod(cls,"%Extends","Ens.Rule.Definition") { Write "NOTCLASS",$C(10) Quit }"#.to_string(),
+        r#"Set sc=##class(Ens.Rule.Model.ruleDefinition).LoadFromClass(cls,.rd,0,0)"#.to_string(),
+        r#"If $System.Status.IsError(sc) { Write "ERROR|",$Translate($System.Status.GetErrorText(sc),$C(13,10),"  "),$C(10) Quit }"#.to_string(),
+        r#"Write "DEF|",rd.assistClass,"|",rd.ruleType,"|",rd.context,"|",$Translate(rd.description,$C(13,10),"  "),$C(10)"#.to_string(),
+        "For i=1:1:rd.ruleSets.Count() {".to_string(),
+        r#" Set rs=rd.ruleSets.GetAt(i) Write "SET|",i,"|",rs.effectiveBegin,"|",rs.effectiveEnd,"|",rs.name,$C(10)"#.to_string(),
+        " For j=1:1:rs.actions.Count() {".to_string(),
+        "  Set a=rs.actions.GetAt(j)".to_string(),
+        "  If a.%IsA(\"Ens.Rule.Model.rule\") {".to_string(),
+        r#"   Write "RULE|",i,"|",+a.disabled,"|",a.name,$C(10)"#.to_string(),
+        format!(
+            r#"   For k=1:1:a.whens.Count() {{ Set w=a.whens.GetAt(k) Write "WHEN|",$Translate(w.condition,$C(13,10),"  "),$C(10) {} }}"#,
+            rule_actions_code("W", "w.actions")
+        ),
+        format!(
+            "   If $IsObject(a.otherwise) {{ {} }}",
+            rule_actions_code("O", "a.otherwise.actions")
+        ),
+        "  } Else {".to_string(),
+        format!(
+            r#"   Set one=##class(%ListOfObjects).%New() Do one.Insert(a) {}"#,
+            rule_actions_code("S", "one")
+        ),
+        "  }".to_string(),
+        " }".to_string(),
+        "}".to_string(),
+        r#"Write "DONE",$C(10)"#.to_string(),
+    ]
+    .join("\n")
+}
+
+fn opt(s: &str) -> serde_json::Value {
+    if s.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String(s.to_string())
+    }
+}
+
+/// Parses the output of [`build_rule_class_list_code`].
+pub fn parse_rule_class_list(raw: &str) -> Vec<serde_json::Value> {
+    raw.lines()
+        .filter_map(|line| line.strip_prefix("CLS|"))
+        .filter_map(|rest| {
+            let f: Vec<&str> = rest.splitn(4, '|').collect();
+            let name = *f.get(2)?;
+            Some(serde_json::json!({
+                "name": name,
+                "class_name": name,
+                "kind": "class",
+                "rule_type": opt(f[0]),
+                "modified": opt(f[1]),
+                "description": opt(f.get(3).copied().unwrap_or("")),
+            }))
+        })
+        .collect()
+}
+
+/// Parses the output of [`build_rule_class_get_code`] into the rule tree plus the flat
+/// `conditions` and `actions` lists the legacy shape has. `Err` carries the load error.
+pub fn parse_rule_class_get(raw: &str) -> Result<serde_json::Value, String> {
+    use serde_json::{json, Value};
+    let mut def: Option<Value> = None;
+    let mut sets: Vec<Value> = Vec::new();
+    let mut conditions: Vec<Value> = Vec::new();
+    let mut flat_actions: Vec<Value> = Vec::new();
+    for line in raw.lines() {
+        if let Some(e) = line.strip_prefix("ERROR|") {
+            return Err(e.to_string());
+        }
+        let (tag, rest) = line.split_once('|').unwrap_or((line, ""));
+        match tag {
+            "DEF" => {
+                let f: Vec<&str> = rest.splitn(4, '|').collect();
+                def = Some(json!({
+                    "rule_type": opt(f[0]),
+                    "rule_kind": opt(f.get(1).copied().unwrap_or("")),
+                    "context": opt(f.get(2).copied().unwrap_or("")),
+                    "description": opt(f.get(3).copied().unwrap_or("")),
+                }));
+            }
+            "SET" => {
+                let f: Vec<&str> = rest.splitn(4, '|').collect();
+                sets.push(json!({
+                    "name": f.get(3).copied().unwrap_or(""),
+                    "effective_begin": opt(f.get(1).copied().unwrap_or("")),
+                    "effective_end": opt(f.get(2).copied().unwrap_or("")),
+                    "rules": [],
+                    "actions": [],
+                }));
+            }
+            "RULE" => {
+                let f: Vec<&str> = rest.splitn(3, '|').collect();
+                if let Some(set) = sets.last_mut() {
+                    set["rules"].as_array_mut().unwrap().push(json!({
+                        "name": f.get(2).copied().unwrap_or(""),
+                        "disabled": f.get(1) == Some(&"1"),
+                        "whens": [],
+                        "otherwise": [],
+                    }));
+                }
+            }
+            "WHEN" => {
+                if let Some(rule) = sets
+                    .last_mut()
+                    .and_then(|s| s["rules"].as_array_mut())
+                    .and_then(|r| r.last_mut())
+                {
+                    conditions.push(json!({"rule": rule["name"], "condition": rest}));
+                    rule["whens"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"condition": rest, "actions": []}));
+                }
+            }
+            "ACT" => {
+                let f: Vec<&str> = rest.splitn(6, '|').collect();
+                let action = json!({
+                    "type": f.get(1).copied().unwrap_or(""),
+                    "property": opt(f.get(2).copied().unwrap_or("")),
+                    "target": opt(f.get(3).copied().unwrap_or("")),
+                    "transform": opt(f.get(4).copied().unwrap_or("")),
+                    "value": opt(f.get(5).copied().unwrap_or("")),
+                });
+                let Some(set) = sets.last_mut() else { continue };
+                let rule_name = set["rules"]
+                    .as_array()
+                    .and_then(|r| r.last())
+                    .map(|r| r["name"].clone())
+                    .unwrap_or(Value::Null);
+                match f.first().copied() {
+                    Some("W") => {
+                        if let Some(when) = set["rules"]
+                            .as_array_mut()
+                            .and_then(|r| r.last_mut())
+                            .and_then(|r| r["whens"].as_array_mut())
+                            .and_then(|w| w.last_mut())
+                        {
+                            when["actions"].as_array_mut().unwrap().push(action.clone());
+                        }
+                    }
+                    Some("O") => {
+                        if let Some(rule) = set["rules"].as_array_mut().and_then(|r| r.last_mut()) {
+                            rule["otherwise"]
+                                .as_array_mut()
+                                .unwrap()
+                                .push(action.clone());
+                        }
+                    }
+                    _ => {
+                        set["actions"].as_array_mut().unwrap().push(action.clone());
+                        flat_actions.push(json!({"rule": Value::Null, "action": action}));
+                        continue;
+                    }
+                }
+                flat_actions.push(json!({"rule": rule_name, "action": action}));
+            }
+            _ => {}
+        }
+    }
+    let mut v = def.ok_or_else(|| "the rule class returned no definition".to_string())?;
+    v["kind"] = json!("class");
+    v["rule_sets"] = Value::Array(sets);
+    v["conditions"] = Value::Array(conditions);
+    v["actions"] = Value::Array(flat_actions);
+    Ok(v)
+}
+
 pub async fn handle_iris_business_rule_info(
     iris: Option<&IrisConnection>,
     params: &BusinessRuleInfoParams,
@@ -2125,6 +2329,13 @@ pub async fn handle_iris_business_rule_info(
     }
 
     if params.action == "list" {
+        let mut rules = match iris
+            .execute_via_generator(&build_rule_class_list_code(), &params.namespace, &client)
+            .await
+        {
+            Ok(out) => parse_rule_class_list(&out),
+            Err(e) => return err_json("IRIS_EXECUTE_ERROR", &e.to_string()),
+        };
         let sql = "SELECT Name, FullName, ShortDescription, TimeModified \
                     FROM Ens_Rule.RuleSet ORDER BY Name";
         return match iris.query(sql, vec![], &params.namespace, &client).await {
@@ -2133,28 +2344,52 @@ pub async fn handle_iris_business_rule_info(
                     .as_array()
                     .cloned()
                     .unwrap_or_default();
-                let rules: Vec<serde_json::Value> = rows
-                    .iter()
-                    .map(|r| {
-                        serde_json::json!({
-                            "name": r["Name"],
-                            "class_name": r["FullName"],
-                            "description": r["ShortDescription"],
-                            "modified": r["TimeModified"],
-                        })
+                rules.extend(rows.iter().map(|r| {
+                    serde_json::json!({
+                        "name": r["Name"],
+                        "class_name": r["FullName"],
+                        "kind": "legacy",
+                        "rule_type": serde_json::Value::Null,
+                        "description": r["ShortDescription"],
+                        "modified": r["TimeModified"],
                     })
-                    .collect();
+                }));
                 ok_json(serde_json::json!({"success": true, "rules": rules}))
             }
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         };
     }
 
-    // action == "get"
-    // Ens.Rule.RuleSet's ID is a composite key (HostClass||Name||Version), not the
+    // action == "get": a rule class first, the legacy table only when the name is not one.
+    let rule_name = params.rule_name.as_deref().unwrap_or("");
+    match iris
+        .execute_via_generator(
+            &build_rule_class_get_code(rule_name),
+            &params.namespace,
+            &client,
+        )
+        .await
+    {
+        Ok(out) if out.trim() == "NOTCLASS" => {}
+        Ok(out) => {
+            return match parse_rule_class_get(&out) {
+                Ok(mut v) => {
+                    v["success"] = serde_json::json!(true);
+                    v["name"] = serde_json::json!(rule_name);
+                    ok_json(v)
+                }
+                Err(e) => err_json(
+                    "RULE_LOAD_FAILED",
+                    &format!("{rule_name} is a rule class but its definition did not load: {e}"),
+                ),
+            };
+        }
+        Err(e) => return err_json("IRIS_EXECUTE_ERROR", &e.to_string()),
+    }
+
+    // Legacy: Ens.Rule.RuleSet's ID is a composite key (HostClass||FullName||Version), not the
     // Name alone — must look up the ID via SQL before %OpenId. Multiple versions can
     // exist for the same Name; pick the highest ID (most recently compiled version).
-    let rule_name = params.rule_name.as_deref().unwrap_or("");
     let rule_q = rule_name.replace('\'', "''");
     let sql = format!(
         "SELECT ID, ShortDescription FROM Ens_Rule.RuleSet WHERE Name = '{rule_q}' ORDER BY ID DESC"
@@ -2218,6 +2453,7 @@ For i=1:1:count {{
                     ok_json(serde_json::json!({
                         "success": true,
                         "name": rule_name,
+                        "kind": "legacy",
                         "description": description,
                         "conditions": conditions,
                         "actions": actions,

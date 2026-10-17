@@ -7418,7 +7418,7 @@ Methods:
     }
 
     #[tool(
-        description = "List or inspect Ensemble business rules (Ens.Rule.RuleSet). action=list returns all rule sets with name/description/modified. action=get with rule_name returns conditions/actions counts for that rule set. Returns INTEROP_NOT_AVAILABLE if Ensemble is not installed. Skill: ensemble-production (merged toolset only). `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
+        description = "List or inspect interoperability business rules. Reads rule classes (subclasses of Ens.Rule.Definition with XData RuleDefinition, the kind the Rule Editor opens) and legacy Ens.Rule.RuleSet rows; each result has kind=class or kind=legacy. action=list returns {name, class_name, kind, rule_type, description, modified}. action=get with rule_name (the rule class name) returns the rule sets, each rule's when conditions and actions, its rule_type and context; for a legacy rule set only condition/action counts. Returns INTEROP_NOT_AVAILABLE if Ensemble is not installed. Skill: ensemble-production (merged toolset only). `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
         annotations(read_only_hint = true),
         output_schema = output_schemas::oneof_output_schema::<IrisBusinessRuleInfoResponse>()
     )]

@@ -335,8 +335,10 @@ protected health information. Handles both plain-text and stream-backed bodies.
 
 ### `iris_business_rule_info(action, rule_name?)`
 
-- `action="list"` — list all `Ens.Rule.RuleSet` business rules in the namespace
-- `action="get"` with `rule_name` — return the conditions and actions for that rule
+- `action="list"` — list the rule classes (`Ens.Rule.Definition` subclasses) and any legacy
+  `Ens.Rule.RuleSet` rows in the namespace, each tagged `kind: class` or `kind: legacy`
+- `action="get"` with `rule_name` (the rule class name) — return the rule type, context, and each
+  rule's conditions and actions
 
 ### `iris_production_diff`
 
