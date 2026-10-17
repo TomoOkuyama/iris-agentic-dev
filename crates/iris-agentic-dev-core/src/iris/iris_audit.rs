@@ -47,23 +47,24 @@ pub fn build_event_data(
 /// or `0` on failure (event absent or disabled).
 pub fn build_audit_os(event_data: &str, description: &str) -> String {
     // Escape double-quotes and backslashes for ObjectScript string embedding.
-    let ed = escape_for_os_string(event_data);
-    let desc = escape_for_os_string(description);
+    let ed_lit = escape_for_os_string(event_data);
+    let desc_lit = escape_for_os_string(description);
+    // splice-ok: source, etype and event are the module's own constants
     format!(
-        r#"Set tResult=$SYSTEM.Security.Audit("{source}","{etype}","{event}","{ed}","{desc}") Write tResult,!"#,
+        r#"Set tResult=$SYSTEM.Security.Audit("{source}","{etype}","{event}","{ed_lit}","{desc_lit}") Write tResult,!"#,
         source = EVENT_SOURCE,
         etype = EVENT_TYPE,
         event = EVENT_NAME,
-        ed = ed,
-        desc = desc,
+        ed_lit = ed_lit,
+        desc_lit = desc_lit,
     )
 }
 
 /// Escape a string for embedding as a quoted ObjectScript literal.
 /// ObjectScript string delimiters are `"…"`. A `"` inside is doubled (`""`).
 fn escape_for_os_string(s: &str) -> String {
-    // In ObjectScript, double `"` to escape. No backslash escape needed.
-    s.replace('"', "\"\"")
+    // Goes between the quotes of a literal. Doubling alone let a line break end the line (137).
+    crate::objectscript::os_lit_inner(s)
 }
 
 /// Per-connection failure counter for `%SYS.Audit` emission.

@@ -278,6 +278,7 @@ pub async fn write_durable(
         Some(iris) => {
             let listbuild = encode_listbuild(record);
             let code = format!(
+                // splice-ok: sid is a Uuid this process generated
                 "set seq=$INCREMENT(^IRISDEV(\"telemetry\",\"{sid}\"))\nset ^IRISDEV(\"telemetry\",\"{sid}\",seq)={lb}\n",
                 sid = record.session_id,
                 lb = listbuild
@@ -345,6 +346,7 @@ async fn read_durable_iris(
     let mut out = Vec::new();
     for sid in sessions {
         let code = format!(
+            // splice-ok: sid is a Uuid this process generated
             "set sid=\"{sid}\"\nset seq=\"\"\nfor {{\n set seq=$ORDER(^IRISDEV(\"telemetry\",sid,seq))\n quit:seq=\"\"\n set rec=^IRISDEV(\"telemetry\",sid,seq)\n write $LISTTOSTRING(rec,\"|\"),!\n}}\n"
         );
         match iris.execute_via_generator(&code, "USER", client).await {

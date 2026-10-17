@@ -920,7 +920,7 @@ pub async fn handle_iris_table_info(
     // Look up class projection: find a compiled class whose SQL mapping matches.
     let lookup_code = format!(
         r#"
-set sqlSchema = "{schema}", sqlTable = "{table}"
+set sqlSchema = "{schema_lit}", sqlTable = "{table_lit}"
 // Check table exists at all via INFORMATION_SCHEMA
 set rsEx = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", sqlSchema, sqlTable)
 if rsEx.%Next() && (rsEx.%GetData(1) = 0) {{ write "NOT_FOUND",! quit }}
@@ -936,8 +936,8 @@ if rs.%Next() {{
     write "DDL_TABLE",!
 }}
 "#,
-        schema = crate::objectscript::os_lit_inner(&sql_schema),
-        table = crate::objectscript::os_lit_inner(&sql_table),
+        schema_lit = crate::objectscript::os_lit_inner(&sql_schema),
+        table_lit = crate::objectscript::os_lit_inner(&sql_table),
     );
 
     let output = iris
@@ -1057,10 +1057,10 @@ async fn get_row_count(
     table: &str,
 ) -> serde_json::Value {
     let code = format!(
-        r#"set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM ""{schema}"".{table}")
+        r#"set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM ""{schema_lit}"".{table_lit}")
 if rs.%Next() {{ write rs.%GetData(1),! }} else {{ write "error",! }}"#,
-        schema = crate::objectscript::os_lit_inner(schema),
-        table = crate::objectscript::os_lit_inner(table),
+        schema_lit = crate::objectscript::os_lit_inner(schema),
+        table_lit = crate::objectscript::os_lit_inner(table),
     );
     match iris.execute_via_generator(&code, namespace, client).await {
         Ok(out) => out

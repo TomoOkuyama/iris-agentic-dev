@@ -237,7 +237,7 @@ pub async fn journal_search_impl(
 Set tFirst=tFile.FirstRecordGet()
 If '$IsObject(tFirst) {{ Write "COUNT:0" Quit }}
 Set tRS=##class(%ResultSet).%New("%SYS.Journal.File:Search")
-Set tSC=tRS.Execute("{search}",tFile.Name,tFirst.Address,0)
+Set tSC=tRS.Execute("{search_lit}",tFile.Name,tFirst.Address,0)
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 Set tCount=0
 While tRS.Next() && (tCount<{cap}) {{
@@ -245,6 +245,7 @@ While tRS.Next() && (tCount<{cap}) {{
   Set tRec=tFile.GetRecordAt(tAddr)
   Continue:'$IsObject(tRec)
   Set tTS=tRec.TimeStamp
+  // splice-ok: from and to passed validate_timestamp above
   Continue:("{from}"'="")&&(tTS<"{from}")
   Continue:("{to}"'="")&&(tTS>"{to}")
   Set tGlobalRef="" Set tValue=""
@@ -256,7 +257,7 @@ While tRS.Next() && (tCount<{cap}) {{
   Set tCount=tCount+1
 }}
 Write "COUNT:"_tCount,!"#,
-        search = crate::objectscript::os_lit_inner(&search_term),
+        search_lit = crate::objectscript::os_lit_inner(&search_term),
         cap = cap,
         from = from_ts,
         to = to_ts,
@@ -403,10 +404,11 @@ pub async fn database_status_impl(
 
     // SYS.Database has no SQL projection — use SYS.Database:FreeSpace named query.
     // Execute("*") = all databases; Execute(name) = single database filter.
-    let arg = name_filter.filter(|s| !s.is_empty()).unwrap_or("*");
+    let arg_lit =
+        crate::objectscript::os_lit_inner(name_filter.filter(|s| !s.is_empty()).unwrap_or("*"));
     let code = format!(
         r#"Set tRS=##class(%ResultSet).%New("SYS.Database:FreeSpace")
-Set tSC=tRS.Execute("{arg}")
+Set tSC=tRS.Execute("{arg_lit}")
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 While tRS.Next() {{
   Set tMirror="none"
@@ -415,7 +417,6 @@ While tRS.Next() {{
   Write tRS.Get("DatabaseName"),"|",tRS.Get("Directory"),"|",tRS.Get("Status"),"|",
         tRS.Get("AvailableNum"),"|",tRS.Get("ReadOnly"),"|",tMirror,!
 }}"#,
-        arg = arg.replace('"', "\"\""),
     );
     match iris.execute_via_generator(&code, "%SYS", &client).await {
         Ok(out) => {

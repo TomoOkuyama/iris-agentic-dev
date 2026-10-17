@@ -860,6 +860,7 @@ pub async fn interop_message_search_impl(
             (None, Some(class)) => {
                 let c = class.replace('\'', "''");
                 let sql = format!(
+                    // splice-ok: a SQL literal with its single quotes doubled at the binding; SQL text has no line split to break
                     "SELECT TOP 1 ClassExtent FROM Ens_Config.SearchTableProp WHERE ClassDerivation = '{c}' OR ClassDerivation LIKE '{c}~%'"
                 );
                 match iris.query(&sql, vec![], ns, &client).await {
@@ -890,6 +891,7 @@ pub async fn interop_message_search_impl(
             None => String::new(),
         };
         let prop_sql = format!(
+            // splice-ok: a SQL literal with its single quotes doubled at the binding; SQL text has no line split to break
             "SELECT PropId FROM Ens_Config.SearchTableProp WHERE ClassExtent = '{e_esc}' AND Name = '{}'{scope}",
             st.prop.replace('\'', "''")
         );
@@ -902,6 +904,7 @@ pub async fn interop_message_search_impl(
         };
         if prop_ids.is_empty() {
             let names_sql = format!(
+                // splice-ok: a SQL literal with its single quotes doubled at the binding; SQL text has no line split to break
                 "SELECT DISTINCT Name FROM Ens_Config.SearchTableProp WHERE ClassExtent = '{e_esc}' ORDER BY Name"
             );
             let names = iris
@@ -2123,9 +2126,9 @@ fn rule_actions_code(scope: &str, coll: &str) -> String {
 /// `NOTCLASS` when the name is not a compiled Ens.Rule.Definition subclass, so the caller can fall
 /// back to the legacy table.
 pub fn build_rule_class_get_code(class_name: &str) -> String {
-    let c = class_name.replace('"', "\"\"");
+    let c_lit = crate::objectscript::os_lit_inner(class_name);
     [
-        format!(r#"Set cls="{c}""#),
+        format!(r#"Set cls="{c_lit}""#),
         r#"If '##class(%Dictionary.CompiledClass).%ExistsId(cls) { Write "NOTCLASS",$C(10) Quit }"#.to_string(),
         r#"If '$ClassMethod(cls,"%Extends","Ens.Rule.Definition") { Write "NOTCLASS",$C(10) Quit }"#.to_string(),
         r#"Set sc=##class(Ens.Rule.Model.ruleDefinition).LoadFromClass(cls,.rd,0,0)"#.to_string(),
@@ -2409,11 +2412,16 @@ pub async fn handle_iris_business_rule_info(
     // Legacy: Ens.Rule.RuleSet's ID is a composite key (HostClass||FullName||Version), not the
     // Name alone — must look up the ID via SQL before %OpenId. Multiple versions can
     // exist for the same Name; pick the highest ID (most recently compiled version).
-    let rule_q = rule_name.replace('\'', "''");
-    let sql = format!(
-        "SELECT ID, ShortDescription FROM Ens_Rule.RuleSet WHERE Name = '{rule_q}' ORDER BY ID DESC"
-    );
-    match iris.query(&sql, vec![], &params.namespace, &client).await {
+    let sql = "SELECT ID, ShortDescription FROM Ens_Rule.RuleSet WHERE Name = ? ORDER BY ID DESC";
+    match iris
+        .query(
+            sql,
+            vec![serde_json::json!(rule_name)],
+            &params.namespace,
+            &client,
+        )
+        .await
+    {
         Ok(resp) => {
             let rows = resp["result"]["content"]
                 .as_array()
@@ -2427,10 +2435,10 @@ pub async fn handle_iris_business_rule_info(
             }
             let description = rows[0]["ShortDescription"].clone();
             let rule_id = rows[0]["ID"].as_str().unwrap_or("").to_string();
-            let rule_id_q = rule_id.replace('"', "\"\"");
+            let rule_id_lit = crate::objectscript::os_lit_inner(&rule_id);
 
             let code = format!(
-                r#"Set rs=##class(Ens.Rule.RuleSet).%OpenId("{rule_id_q}")
+                r#"Set rs=##class(Ens.Rule.RuleSet).%OpenId("{rule_id_lit}")
 If '$IsObject(rs) {{ Write "ERROR:RULE_NOT_FOUND" Quit }}
 Write "OK:"
 Set count=rs.Rules.Count()
@@ -2439,7 +2447,7 @@ For i=1:1:count {{
   Write "COND:"_$Select($IsObject(rule.Conditions):rule.Conditions.Count(),1:0)_"|"
   Write "ACT:"_$Select($IsObject(rule.Actions):rule.Actions.Count(),1:0)_"|"
 }}"#,
-                rule_id_q = rule_id_q
+                rule_id_lit = rule_id_lit
             );
             match iris
                 .execute_via_generator(&code, &params.namespace, &client)
@@ -2513,18 +2521,17 @@ pub async fn handle_iris_production_diff(
         }
     };
 
-    let prod_q = prod_name.replace('"', "\"\"");
-    let doc_name = format!("{prod_q}.cls");
+    let doc_name = format!("{prod_name}.cls");
     let username = iris.username.clone();
     let password = iris.password.clone();
     let scm_code = format!(
-        r#"Set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate("{user_q}","{pass_q}",.created,.flags,.outuser)
+        r#"Set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate("{user_lit}","{pass_lit}",.created,.flags,.outuser)
 Set isInSC=0
-Set sc=##class(%Studio.SourceControl.Interface).GetStatus("{doc_q}",.isInSC,.editable,.isCheckedOut,.owner)
+Set sc=##class(%Studio.SourceControl.Interface).GetStatus("{doc_lit}",.isInSC,.editable,.isCheckedOut,.owner)
 If $System.Status.IsError(sc)||('isInSC) {{ Write "NO_SCM" }} Else {{ Write "IN_SCM" }}"#,
-        user_q = username.replace('"', "\"\""),
-        pass_q = password.replace('"', "\"\""),
-        doc_q = doc_name.replace('"', "\"\""),
+        user_lit = crate::objectscript::os_lit_inner(&username),
+        pass_lit = crate::objectscript::os_lit_inner(&password),
+        doc_lit = crate::objectscript::os_lit_inner(&doc_name),
     );
     match iris.execute_via_generator(&scm_code, ns, &client).await {
         Ok(out) if out.trim() == "NO_SCM" => {
@@ -2539,8 +2546,8 @@ If $System.Status.IsError(sc)||('isInSC) {{ Write "NO_SCM" }} Else {{ Write "IN_
 
     // Confirm the production exists before fetching items.
     let exists_code = format!(
-        r#"Write ##class(%Dictionary.ClassDefinition).%ExistsId("{prod_q}")"#,
-        prod_q = prod_q.replace('"', "\"\"")
+        r#"Write ##class(%Dictionary.ClassDefinition).%ExistsId("{prod_lit}")"#,
+        prod_lit = crate::objectscript::os_lit_inner(&prod_name)
     );
     match iris.execute_via_generator(&exists_code, ns, &client).await {
         Ok(out) if out.trim() == "0" => {

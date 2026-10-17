@@ -1840,6 +1840,10 @@ def check_unpowered_result() -> list[Finding]:
 #   literal. `os_str_expr` emits its own quotes, so a safe site splices `{x_expr}` unquoted.
 # - `.replace('"', "\\\"")`: a backslash escape. ObjectScript has none; a quote is doubled.
 #
+# A placeholder named `*_lit` holds `os_lit_inner(value)`, which is built to sit between quotes, so it
+# is not flagged. The suffix is the claim; review checks the binding. A SCREAMING_CASE placeholder
+# names a Rust constant, which carries no caller text, so it is not flagged either.
+#
 # Not flagged: a bare `{x}` splice, because code builders splice generated fragments that way.
 # research.md lists those by hand. A site that is safe for a reason the detector cannot see (the
 # value had its quotes doubled earlier) carries a `splice-ok: <reason>` comment within the three
@@ -1858,7 +1862,9 @@ BACKSLASH_ESCAPE = re.compile(r"""\.replace\(\s*'"'\s*,\s*"\\\\\\""\s*\)""")
 OBJECTSCRIPT_TEXT = re.compile(
     r"\b(Set|Write|Do|Quit|Kill|If|For|While|Return|Throw)\s|##class\(|\$[A-Z][A-Za-z]*\(|\bzn\s",
 )
-SQL_TEXT = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b.*\b(FROM|INTO|SET|WHERE)\b", re.S | re.I)
+SQL_TEXT = re.compile(
+    r"\b(SELECT|INSERT|UPDATE|DELETE)\b.*\b(FROM|INTO|SET|WHERE)\b", re.S | re.I
+)
 SPLICE_OK = "splice-ok:"
 
 
@@ -1896,12 +1902,14 @@ def objectscript_splice_findings(files: dict[str, str]) -> list[Finding]:
                 rx = QUOTED_IN_RAW if is_raw else QUOTED_ESCAPED
                 hits += [(off + q.start(), q.group(0)) for q in rx.finditer(body)]
             if SQL_TEXT.search(body):
-                hits += [(off + q.start(), q.group(0)) for q in QUOTED_SQL.finditer(body)]
+                hits += [
+                    (off + q.start(), q.group(0)) for q in QUOTED_SQL.finditer(body)
+                ]
         for q in BACKSLASH_ESCAPE.finditer(text):
             hits.append((q.start(), "backslash escape"))
         for offset, what in sorted(set(hits)):
             line = line_of(offset)
-            if marked(line):
+            if marked(line) or re.search(r"_lit(?::[^}]*)?\}|\{[A-Z][A-Z0-9_]*\}", what):
                 continue
             if what == "backslash escape":
                 msg = (
@@ -1945,6 +1953,7 @@ CHECKS = {
 # Findings in these classes always fail the gate, baseline or not: the class is fully
 # cleaned up in the tree, so any instance is new by definition.
 NO_BASELINE = {
+    "objectscript-splice",
     "error-sentinels",
     "self-referential-gates",
     "version-consistency",

@@ -1331,7 +1331,7 @@ pub fn build_test_run_code(
     let is_class_pattern = !pattern.contains('/') && !pattern.contains('\\');
     // The pattern goes inside literals below, so it is escaped for them; `.Run()` splices it bare
     // as a class name, so that path needs a valid one (137).
-    let (lit, flags, token) = (
+    let (pattern_lit, flags_lit, token_lit) = (
         os_lit_inner(pattern),
         os_lit_inner(flags),
         os_lit_inner(token),
@@ -1340,15 +1340,17 @@ pub fn build_test_run_code(
     if is_test_production && is_class_pattern && validate_class_name(pattern).is_ok() {
         format!(r#"do ##class({pattern}).Run()"#)
     } else if is_class_pattern {
-        format!(r#"do ##class(%UnitTest.Manager).RunTest("{lit}","{flags}","{token}")"#)
+        format!(
+            r#"do ##class(%UnitTest.Manager).RunTest("{pattern_lit}","{flags_lit}","{token_lit}")"#
+        )
     } else {
         format!(
             r#"set utRoot="/tmp/httest/"
 if '##class(%File).DirectoryExists(utRoot) {{ do ##class(%File).CreateDirectoryChain(utRoot) }}
-set pkgDir=utRoot_"{lit}"_"/"
+set pkgDir=utRoot_"{pattern_lit}"_"/"
 if '##class(%File).DirectoryExists(pkgDir) {{ do ##class(%File).CreateDirectoryChain(pkgDir) }}
 set ^UnitTestRoot=utRoot
-do ##class(%UnitTest.Manager).RunTest("{lit}","{flags}","{token}")"#
+do ##class(%UnitTest.Manager).RunTest("{pattern_lit}","{flags_lit}","{token_lit}")"#
         )
     }
 }
@@ -1356,11 +1358,10 @@ do ##class(%UnitTest.Manager).RunTest("{lit}","{flags}","{token}")"#
 /// ObjectScript snippet to probe whether a class extends %UnitTest.TestProduction.
 /// Returns code that writes "1" if it does, "0" otherwise.
 pub fn build_superclass_probe(class_name: &str) -> String {
-    let safe = crate::objectscript::os_lit_inner(class_name);
+    let cls_lit = crate::objectscript::os_lit_inner(class_name);
     format!(
-        r#"set oref=##class(%Dictionary.ClassDefinition).%OpenId("{cls}")
+        r#"set oref=##class(%Dictionary.ClassDefinition).%OpenId("{cls_lit}")
 if $isobject(oref) {{ write $select($find(oref.Super,"%UnitTest.TestProduction"):1,1:0) }} else {{ write 0 }}"#,
-        cls = safe,
     )
 }
 
@@ -2076,12 +2077,12 @@ async fn iris_query_write(
             Some(count_sql) => {
                 let code = format!(
                     r#"Set st=##class(%SQL.Statement).%New()
-Set sc=st.%Prepare("{count_sql}")
+Set sc=st.%Prepare("{count_sql_lit}")
 If $$$ISERR(sc) {{ Write "ERROR:ROWS_CHECK_FAILED:"_$System.Status.GetErrorText(sc) Quit }}
 Set rs=st.%Execute()
 If rs.%SQLCODE<0 {{ Write "ERROR:ROWS_CHECK_FAILED:"_rs.%Message Quit }}
 If rs.%Next() {{ Write "OK:"_rs.%GetData(1) }} Else {{ Write "OK:0" }}"#,
-                    count_sql = count_sql.replace('"', "\"\""),
+                    count_sql_lit = crate::objectscript::os_lit_inner(&count_sql),
                 );
                 match iris.execute_via_generator(&code, namespace, client).await {
                     Ok(out) => {
@@ -2116,12 +2117,12 @@ If rs.%Next() {{ Write "OK:"_rs.%GetData(1) }} Else {{ Write "OK:0" }}"#,
 
     let code = format!(
         r#"Set st=##class(%SQL.Statement).%New()
-Set sc=st.%Prepare("{sql}")
+Set sc=st.%Prepare("{sql_lit}")
 If $$$ISERR(sc) {{ Write "ERROR:SQL_ERROR:"_$System.Status.GetErrorText(sc) Quit }}
 Set rs=st.%Execute()
 If rs.%SQLCODE<0 {{ Write "ERROR:SQL_ERROR:"_rs.%Message Quit }}
 Write "OK:"_rs.%ROWCOUNT"#,
-        sql = p.query.replace('"', "\"\""),
+        sql_lit = crate::objectscript::os_lit_inner(&p.query),
     );
     match iris.execute_via_generator(&code, namespace, client).await {
         Ok(out) => {

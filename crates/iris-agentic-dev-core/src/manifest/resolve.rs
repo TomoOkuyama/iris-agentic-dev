@@ -265,9 +265,9 @@ impl ResolveLock {
             // Bug 11: use proper TOML string quoting, not Rust Debug format ({:?}).
             out.push_str(&format!(
                 "[[package]]\nname = \"{}\"\nversion = \"{}\"\nrepository = \"{}\"\n\n",
-                pkg.name.replace('\\', "\\\\").replace('"', "\\\""),
-                pkg.version.replace('\\', "\\\\").replace('"', "\\\""),
-                pkg.repository.replace('\\', "\\\\").replace('"', "\\\""),
+                pkg.name.replace('\\', "\\\\").replace('"', "\\\""), // splice-ok: TOML escapes with a backslash
+                pkg.version.replace('\\', "\\\\").replace('"', "\\\""), // splice-ok: TOML escapes with a backslash
+                pkg.repository.replace('\\', "\\\\").replace('"', "\\\""), // splice-ok: TOML escapes with a backslash
             ));
         }
         out

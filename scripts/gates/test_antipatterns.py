@@ -1165,6 +1165,14 @@ Write "{{done}}""#)
 fn f(x: &str) -> String {
     format!("{x}")
 }
+const SOURCE: &str = "IADFixture.Svc";
+fn f3() -> String {
+    format!(r#"Set tHdr.SourceConfigName="{SOURCE}" Write 1"#)
+}
+fn f2(x: &str) -> String {
+    let x_lit = crate::objectscript::os_lit_inner(x);
+    format!(r#"Set v="{x_lit}" Write v"#)
+}
 /// Comment: `Set dir="{dir}"` explains the old shape.
 fn g() {}
 """
@@ -1189,12 +1197,14 @@ def test_objectscript_splice() -> None:
         check(f"fires on {label}", len(found) == 1, messages(found))
     found = ap.objectscript_splice_findings({"crates/c/src/a.rs": SPLICE_CLEAN})
     check(
-        "silent on an os_str_expr splice, escaped braces, a bare format and a comment",
+        "silent on an os_str_expr splice, a _lit placeholder, a CONSTANT, escaped braces, a bare format and a comment",
         not found,
         messages(found),
     )
     found = ap.objectscript_splice_findings({"crates/c/src/a.rs": SPLICE_MARKED})
-    check("silent where a splice-ok comment gives the reason", not found, messages(found))
+    check(
+        "silent where a splice-ok comment gives the reason", not found, messages(found)
+    )
 
 
 def test_zz_every_canary_passed() -> None:

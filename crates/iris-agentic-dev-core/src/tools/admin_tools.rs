@@ -74,6 +74,7 @@ pub async fn global_preview_impl(
 
     // Fetch entries using iris_global list action via execute_via_generator
     let limit = params.count.clamp(1, 100);
+    // splice-ok: global_ref is ^ plus a name validate_global_name accepted above
     let code = format!(
         r#"Set gRef="{global_ref}"
 Set cnt=0
@@ -558,10 +559,11 @@ pub fn sysperf_profile_or_default(profile: Option<&str>) -> Result<String, Strin
 /// `Write` lands nowhere and the tool sees an empty result with a residual
 /// `<NAMESPACE>...^%SYS.ProcessQuery` in `$ZERROR` — even though the run started fine.
 pub fn sysperf_start_code(profile: &str) -> String {
+    let profile_lit = crate::objectscript::os_lit_inner(profile);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tRun=$$run^SystemPerformance("{profile}")
+Set tRun=$$run^SystemPerformance("{profile_lit}")
 Use io
 Write tRun"#
     )
@@ -569,10 +571,11 @@ Write tRun"#
 
 /// ObjectScript for `mode=status`. Same device dance as [`sysperf_start_code`].
 pub fn sysperf_status_code(run_id: &str) -> String {
+    let run_id_lit = crate::objectscript::os_lit_inner(run_id);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tWait=$$waittime^SystemPerformance("{run_id}")
+Set tWait=$$waittime^SystemPerformance("{run_id_lit}")
 Use io
 Write tWait"#
     )
@@ -772,21 +775,24 @@ pub fn sysperf_add_profile_code(
     interval_seconds: i64,
     sample_count: i64,
 ) -> String {
+    let name_lit = crate::objectscript::os_lit_inner(name);
+    let description_lit = crate::objectscript::os_lit_inner(description);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tR=$$addprofile^SystemPerformance("{name}","{description}",{interval_seconds},{sample_count})
+Set tR=$$addprofile^SystemPerformance("{name_lit}","{description_lit}",{interval_seconds},{sample_count})
 Use io
-Write $D(^IRIS.SystemPerformance("profile","{name}")),"|",tR"#
+Write $D(^IRIS.SystemPerformance("profile","{name_lit}")),"|",tR"#
     )
 }
 
 /// ObjectScript for `mode=delete_profile`.
 pub fn sysperf_delete_profile_code(name: &str) -> String {
+    let name_lit = crate::objectscript::os_lit_inner(name);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tR=$$delprofile^SystemPerformance("{name}")
+Set tR=$$delprofile^SystemPerformance("{name_lit}")
 Use io
 Write tR"#
     )
@@ -872,9 +878,10 @@ fn nullable(s: &str) -> serde_json::Value {
 ///
 /// An empty `run_id` resolves to the newest completed run.
 pub fn sysperf_report_code(run_id: &str) -> String {
+    let run_id_lit = crate::objectscript::os_lit_inner(run_id);
     format!(
         r#"ZN "%SYS"
-Set rid="{run_id}"
+Set rid="{run_id_lit}"
 If rid="" Set rid=$O(^IRIS.SystemPerformance("history",""),-1)
 Set node=$G(^IRIS.SystemPerformance("history",rid))
 Set dir=$P(node,"^",2)
@@ -1320,9 +1327,9 @@ pub fn build_mirror_add_async_code(
     instance_name: &str,
     async_member_type: u8,
 ) -> String {
-    let mirror_name = crate::objectscript::os_lit_inner(mirror_name);
-    let primary_host = crate::objectscript::os_lit_inner(primary_host);
-    let instance_name = crate::objectscript::os_lit_inner(instance_name);
+    let mirror_name_lit = crate::objectscript::os_lit_inner(mirror_name);
+    let primary_host_lit = crate::objectscript::os_lit_inner(primary_host);
+    let instance_name_lit = crate::objectscript::os_lit_inner(instance_name);
     format!(
         r#"ZN "%SYS"
 Set tMember=##class(%SYSTEM.Mirror).IsMember()
@@ -1335,7 +1342,7 @@ Set tLocalInfo="",tSSLInfo=""
 ; one of them. The generator captures output by making a temp file the current device, so a moved
 ; $IO sends every Write below into the void and the caller sees an empty success. Restore it.
 Set tIO=$IO
-Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name}","","{instance_name}","{primary_host}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
+Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name_lit}","","{instance_name_lit}","{primary_host_lit}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
 Use tIO
 If $$$ISERR(tSC) {{
   Write "ERROR:",$System.Status.GetErrorText(tSC),!
@@ -1519,12 +1526,12 @@ pub fn parse_max_size_mb(s: &str) -> Option<i64> {
 /// The ObjectScript for `iris_namespace_create`. The caller checks `name` as a namespace name; both
 /// values are escaped for the literals they land in (137).
 pub fn build_namespace_create_code(name: &str, db: &str) -> String {
-    let name = crate::objectscript::os_lit_inner(name);
-    let db = crate::objectscript::os_lit_inner(db);
+    let name_lit = crate::objectscript::os_lit_inner(name);
+    let db_lit = crate::objectscript::os_lit_inner(db);
     format!(
-        r#"Set props("Name")="{name}"
-Set props("Globals")="{db}"
-Set props("Routines")="{name}"
+        r#"Set props("Name")="{name_lit}"
+Set props("Globals")="{db_lit}"
+Set props("Routines")="{name_lit}"
 ; CreateOne edits the CPF, which it does by opening the file — and that leaves the current device
 ; on the CPF, not on the generator's capture file. Every Write below then went nowhere and
 ; namespace creation reported success with no output to check. Restore $IO first.

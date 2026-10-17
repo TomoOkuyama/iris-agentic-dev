@@ -932,6 +932,9 @@ pub fn apply_workspace_config(
 /// Generate starter `.iris-agentic-dev.toml` content with inline comments.
 /// Used by `iris-dev init` and `check_config`.
 pub fn generate_toml_content(container: &str, namespace: &str) -> String {
+    // TOML-quoted, so a value with a quote or a backslash still parses.
+    let container_toml = toml::Value::String(container.to_string()).to_string();
+    let namespace_toml = toml::Value::String(namespace.to_string()).to_string();
     format!(
         r#"# iris-agentic-dev workspace configuration
 # Commit this file to share connection settings with your team.
@@ -951,10 +954,10 @@ pub fn generate_toml_content(container: &str, namespace: &str) -> String {
 #   2. Enterprise + ISC Web Gateway container (intersystems/webgateway) — iris-agentic-dev auto-detects it
 #   3. Enterprise standalone (intersystems/iris) — NOT supported, no Atelier REST available
 #
-# container = "{container}"
+# container = {container_toml}
 
 # Default IRIS namespace
-namespace = "{namespace}"
+namespace = {namespace_toml}
 
 # Credentials (optional)
 # Use IRIS_USERNAME / IRIS_PASSWORD env vars instead of committing credentials.

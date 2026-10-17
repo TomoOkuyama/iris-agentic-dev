@@ -66,6 +66,10 @@ pub fn os_stream_write_stmts(stream_var: &str, payload: &str, chunk_chars: usize
 /// It closes the literal, concatenates `os_str_expr(s)`, and reopens it: `"`, `_`, expr, `_`, `"`.
 /// For sites written as `\"{}\"` that cannot easily drop their own quotes.
 pub fn os_lit_inner(s: &str) -> String {
+    // Printable text needs only its quotes doubled, and then the output reads like hand-written code.
+    if !s.chars().any(char::is_control) {
+        return s.replace('"', "\"\"");
+    }
     format!("\"_{}_\"", os_str_expr(s))
 }
 

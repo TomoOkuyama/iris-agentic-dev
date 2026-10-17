@@ -300,6 +300,8 @@ fn os_lit_inner_fits_inside_existing_quotes() {
         None,
         "the checker must reject code"
     );
+    // Printable text keeps the hand-written look: quotes doubled, nothing else.
+    assert_eq!(os_lit_inner("say \"hi\""), "say \"\"hi\"\"");
 }
 
 /// `iris_interop_query` `body_where` is a WHERE fragment spliced into a SELECT. It gets the same

@@ -354,3 +354,17 @@ async fn injection_137_c_url_parts_are_checked() {
         "a real include still lists: {ok}"
     );
 }
+
+/// Found by the objectscript-splice detector after the inventory: `iris_admin
+/// action=database_status` put its name filter into `Execute("...")` unescaped, in a read-only
+/// action.
+#[tokio::test]
+#[ignore]
+async fn injection_137_d_admin_database_status_name() {
+    case(
+        "iris_admin",
+        json!({"action": "database_status", "name": "@P"}),
+        None,
+    )
+    .await;
+}

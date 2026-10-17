@@ -552,11 +552,11 @@ async fn write_with_scm(
     // returns action=1 ("needs confirmation dialog"), which made every chained surgical edit
     // (insert/delete_lines on an already-checked-out doc) re-elicit "requires checkout" forever.
     // In that case emit a PROCEED sentinel and write directly.
-    let n = name.replace('"', "\"\""); // ObjectScript double-quote escaping
+    let n_lit = crate::objectscript::os_lit_inner(name);
     let scm_check = format!(
-        "set scmClass=##class(%Studio.SourceControl.Interface).SourceControlClassGet() if scmClass=\"\" {{ write \"NO_SCM\" }} else {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{u}\",\"{p}\",.c,.f,.o) set obj=$get(%SourceControl) if '$IsObject(obj) {{ write \"NO_SCM\" }} else {{ set hasUndoCheckout=0 try {{ set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") set sc=rset.Execute(\"%SourceMenu\",\"{n}\",\"\") while rset.Next() {{ if rset.GetData(2)&&(rset.GetData(1)=\"%UndoCheckout\") {{ set hasUndoCheckout=1 }} }} }} catch {{}} if hasUndoCheckout {{ write \"PROCEED|\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=obj.UserAction(0,\"%SourceMenu,%CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }} }} }}",
-        u = iris.username.replace('"', "\"\""),
-        p = iris.password.replace('"', "\"\""),
+        "set scmClass=##class(%Studio.SourceControl.Interface).SourceControlClassGet() if scmClass=\"\" {{ write \"NO_SCM\" }} else {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{u_lit}\",\"{p_lit}\",.c,.f,.o) set obj=$get(%SourceControl) if '$IsObject(obj) {{ write \"NO_SCM\" }} else {{ set hasUndoCheckout=0 try {{ set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") set sc=rset.Execute(\"%SourceMenu\",\"{n_lit}\",\"\") while rset.Next() {{ if rset.GetData(2)&&(rset.GetData(1)=\"%UndoCheckout\") {{ set hasUndoCheckout=1 }} }} }} catch {{}} if hasUndoCheckout {{ write \"PROCEED|\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=obj.UserAction(0,\"%SourceMenu,%CheckOut\",\"{n_lit}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }} }} }}",
+        u_lit = crate::objectscript::os_lit_inner(&iris.username),
+        p_lit = crate::objectscript::os_lit_inner(&iris.password),
     );
     // Whether the probe told us the doc is already writable by us (PROCEED / already checked out).
     // Only such a "we hold it" outcome is safe to cache — NOT NO_SCM (no source control at all),
@@ -1962,6 +1962,7 @@ pub fn execute_method_code(call_expr: &str) -> String {
     format!(
         " Set result = {call_expr}\n \
          Set tIsErr = ($Extract(result,1,2)=\"0 \")&&$ListValid($Extract(result,3,*))\n \
+         // splice-ok: a constant of this module
          Write:tIsErr \"{STATUS_ERROR_MARKER}\",$System.Status.GetErrorText(result),$C(10)\n \
          Write:'tIsErr result,$C(10)"
     )
