@@ -324,3 +324,29 @@ fn body_where_is_held_to_the_iris_query_rules() {
         assert_eq!(e["error_code"], "INVALID_PARAMS", "{bad}: {e}");
     }
 }
+
+/// B4: the literal-Kill check looked only at the first argument, so `Kill x,^Y` went through.
+#[test]
+fn literal_kill_check_reads_every_argument() {
+    use iris_agentic_dev_core::tools::write_gate::contains_global_kill;
+    for code in [
+        "Kill x,^Y",
+        "Kill x, ^Y",
+        "kill a,b,^Y(1)",
+        "k x,^Y",
+        "Kill:1 x,^Y",
+        "Set a=1 Kill x,^Y Write 1",
+        "Kill ^Y",
+    ] {
+        assert!(contains_global_kill(code), "{code}");
+    }
+    for code in [
+        "Kill x,y",
+        "Kill (x),y",
+        "Kill x Write \",^Y\"",
+        "Do check^MyRtn",
+        "Set x=$$lock^MyLocks",
+    ] {
+        assert!(!contains_global_kill(code), "{code}");
+    }
+}
