@@ -62,6 +62,165 @@ pub fn os_stream_write_stmts(stream_var: &str, payload: &str, chunk_chars: usize
         .collect()
 }
 
+// ── Names spliced into code ─────────────────────────────────────────────────
+//
+// A name lands in generated code bare (`^<global>`, `##class(<class>)`) or inside a literal. Free text
+// can be escaped with `os_str_expr`; a name cannot, because it is not a value. So a name is checked
+// against IRIS's own syntax for that kind of name and refused otherwise, before any call is made.
+// `X) Kill ^Y Set q=$Get(^X` as a global name made a read-only `iris_global get` kill `^Y` (137).
+
+use regex::Regex;
+use std::sync::OnceLock;
+
+fn refuse(code: &str, field: &str, value: &str, what: &str, syntax: &str) -> serde_json::Value {
+    serde_json::json!({
+        "success": false,
+        "error_code": code,
+        "message": format!("'{value}' is not {what}. {syntax}"),
+        field: value,
+    })
+}
+
+fn check(re: &'static OnceLock<Regex>, pattern: &str, value: &str) -> bool {
+    re.get_or_init(|| Regex::new(pattern).expect("valid regex"))
+        .is_match(value)
+}
+
+static GLOBAL_RE: OnceLock<Regex> = OnceLock::new();
+static CLASS_RE: OnceLock<Regex> = OnceLock::new();
+static ROUTINE_RE: OnceLock<Regex> = OnceLock::new();
+static NAMESPACE_RE: OnceLock<Regex> = OnceLock::new();
+static METHOD_RE: OnceLock<Regex> = OnceLock::new();
+static SQL_ID_RE: OnceLock<Regex> = OnceLock::new();
+static TIMESTAMP_RE: OnceLock<Regex> = OnceLock::new();
+
+/// A global name without its `^`: an optional `%`, a letter, then letters and digits with single
+/// periods between them. The namespace is a separate parameter, so extended references are refused.
+pub fn validate_global_name(name: &str) -> Result<(), serde_json::Value> {
+    if check(
+        &GLOBAL_RE,
+        r"^%?[A-Za-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)*$",
+        name,
+    ) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_GLOBAL_NAME",
+        "global_name",
+        name,
+        "a global name",
+        "A global name is an optional %, a letter, then letters and digits with single periods \
+         between them (MyApp.Data, %SYS). Pass the namespace in 'namespace' and subscripts in \
+         'subscripts', not in the name.",
+    ))
+}
+
+/// A class or package name: an optional `%`, then identifiers (a letter, then letters and digits)
+/// separated by single periods.
+pub fn validate_class_name(name: &str) -> Result<(), serde_json::Value> {
+    if check(
+        &CLASS_RE,
+        r"^%?[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$",
+        name,
+    ) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_CLASS_NAME",
+        "class_name",
+        name,
+        "a class name",
+        "A class name is an optional %, then identifiers separated by single periods \
+         (MyApp.Patient, %Library.String).",
+    ))
+}
+
+/// A routine or document name, with or without its extension. Generated routines have numeric
+/// segments (`MyApp.Flow.1.int`), so a segment may start with a digit.
+pub fn validate_routine_name(name: &str) -> Result<(), serde_json::Value> {
+    if check(
+        &ROUTINE_RE,
+        r"^%?[A-Za-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)*$",
+        name,
+    ) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_ROUTINE_NAME",
+        "routine",
+        name,
+        "a routine or document name",
+        "A routine or document name is an optional %, a letter, then letters and digits with single \
+         periods between them, optionally ending in its type (MyApp.Utils.mac, MyApp.Patient.cls).",
+    ))
+}
+
+/// A namespace name: an optional `%`, a letter, then letters, digits, `_` and `-`.
+pub fn validate_namespace(name: &str) -> Result<(), serde_json::Value> {
+    if check(&NAMESPACE_RE, r"^%?[A-Za-z][A-Za-z0-9_-]*$", name) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_NAMESPACE",
+        "namespace",
+        name,
+        "a namespace name",
+        "A namespace name is an optional %, a letter, then letters, digits, _ and - (USER, %SYS).",
+    ))
+}
+
+/// A method or property name: an optional `%`, a letter, then letters and digits.
+pub fn validate_method_name(name: &str) -> Result<(), serde_json::Value> {
+    if check(&METHOD_RE, r"^%?[A-Za-z][A-Za-z0-9]*$", name) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_METHOD_NAME",
+        "method",
+        name,
+        "a method name",
+        "A method name is an optional %, a letter, then letters and digits (OnRequest, %New).",
+    ))
+}
+
+/// A SQL table reference: `Table` or `Schema.Table`, each part a plain identifier (an optional `%`,
+/// a letter or `_`, then letters, digits and `_`) or a quoted one with no quote inside.
+pub fn validate_sql_identifier(name: &str) -> Result<(), serde_json::Value> {
+    if check(
+        &SQL_ID_RE,
+        r#"^("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*)(\.("[^"]+"|%?[A-Za-z_][A-Za-z0-9_]*))?$"#,
+        name,
+    ) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_SQL_IDENTIFIER",
+        "table",
+        name,
+        "a SQL table name",
+        "A SQL table name is Table or Schema.Table, each part an identifier or a \"quoted\" \
+         identifier (Sample.Person, Ens_Rule.RuleSet).",
+    ))
+}
+
+/// A date or date-time as IRIS's ODBC format writes it: `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS[.f]`.
+pub fn validate_timestamp(value: &str) -> Result<(), serde_json::Value> {
+    if check(
+        &TIMESTAMP_RE,
+        r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2}(\.\d+)?)?$",
+        value,
+    ) {
+        return Ok(());
+    }
+    Err(refuse(
+        "INVALID_TIMESTAMP",
+        "timestamp",
+        value,
+        "a timestamp",
+        "A timestamp is YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (2026-10-17 09:30:00).",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

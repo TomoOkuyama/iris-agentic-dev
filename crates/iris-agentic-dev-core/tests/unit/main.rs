@@ -77,6 +77,7 @@ mod test_no_tracked_local_config;
 mod test_nopws_detection;
 mod test_nopws_execute;
 mod test_one_binary_resolver_130;
+mod test_os_validators_137;
 mod test_output_schema;
 mod test_output_schema_shapes;
 mod test_param_rejection;

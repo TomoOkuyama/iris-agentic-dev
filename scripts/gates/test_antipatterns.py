@@ -1124,6 +1124,79 @@ def test_tool_name_refs() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# objectscript-splice: a placeholder inside a generated literal, or a backslash escape
+# ---------------------------------------------------------------------------
+
+SPLICE_QUOTED_RAW = """
+fn a(dir: &str) -> String {
+    format!(
+        r#"Set dir="{dir}"
+Write dir"#
+    )
+}
+"""
+
+SPLICE_QUOTED_NORMAL = """
+fn b(name: &str) -> String {
+    format!("Set n=\\"{name}\\" Write n")
+}
+"""
+
+SPLICE_SQL = """
+fn c(table: &str) -> String {
+    format!("SELECT Name FROM %Dictionary.ClassDefinition WHERE Name = '{table}'")
+}
+"""
+
+SPLICE_BACKSLASH = """
+fn d(v: &str) -> String {
+    let e = v.replace('"', "\\\\\\"");
+    e
+}
+"""
+
+SPLICE_CLEAN = """
+fn e(dir: &str) -> String {
+    let dir_expr = crate::objectscript::os_str_expr(dir);
+    format!(r#"Set dir={dir_expr}
+Write "{{done}}""#)
+}
+fn f(x: &str) -> String {
+    format!("{x}")
+}
+/// Comment: `Set dir="{dir}"` explains the old shape.
+fn g() {}
+"""
+
+SPLICE_MARKED = """
+fn h(rule_q: &str) -> String {
+    // splice-ok: rule_q has its single quotes doubled two lines up
+    format!("SELECT ID FROM Ens_Rule.RuleSet WHERE Name = '{rule_q}'")
+}
+"""
+
+
+def test_objectscript_splice() -> None:
+    print("objectscript-splice")
+    for label, text in [
+        ("a placeholder inside a raw-string ObjectScript literal", SPLICE_QUOTED_RAW),
+        ("a placeholder inside an escaped quote", SPLICE_QUOTED_NORMAL),
+        ("a placeholder inside a SQL literal", SPLICE_SQL),
+        ("a backslash escape ObjectScript does not have", SPLICE_BACKSLASH),
+    ]:
+        found = ap.objectscript_splice_findings({"crates/c/src/a.rs": text})
+        check(f"fires on {label}", len(found) == 1, messages(found))
+    found = ap.objectscript_splice_findings({"crates/c/src/a.rs": SPLICE_CLEAN})
+    check(
+        "silent on an os_str_expr splice, escaped braces, a bare format and a comment",
+        not found,
+        messages(found),
+    )
+    found = ap.objectscript_splice_findings({"crates/c/src/a.rs": SPLICE_MARKED})
+    check("silent where a splice-ok comment gives the reason", not found, messages(found))
+
+
 def test_zz_every_canary_passed() -> None:
     """The one assertion in the file, and the reason `pytest` can be trusted on it.
 
@@ -1142,6 +1215,7 @@ def main() -> int:
     test_comment_masking_skips_string_literals()
     test_empty_tests()
     test_device_capture()
+    test_objectscript_splice()
     test_scored_exception()
     test_unpowered_result()
     test_tool_name_refs()
