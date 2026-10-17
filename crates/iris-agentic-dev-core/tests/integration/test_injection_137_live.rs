@@ -292,3 +292,38 @@ async fn injection_137_t022_namespace_on_read_only_tools() {
     )
     .await;
 }
+
+// ── Group B: gates that never ran ────────────────────────────────────────────
+
+fn call(tool: &str, args: Value) -> Value {
+    require_iad_binary().expect("binary");
+    answer(&call_tool_with_env(tool, &args, &live_env()))
+}
+
+/// B5: global_preview read ^oddDEF past the system blocklist and a PHI-named global past the PHI
+/// gate, because it never called dispatch_gate and the gates only read `global_name`.
+#[tokio::test]
+#[ignore]
+async fn injection_137_b5_global_preview_is_gated() {
+    let sys = call("global_preview", json!({"global": "oddDEF", "count": 1}));
+    assert_eq!(sys["error_code"], "SYSTEM_BLOCKLIST", "{sys}");
+    let phi = call("global_preview", json!({"global": "PAPMI", "count": 1}));
+    assert_eq!(phi["error_code"], "PHI_GATE_BLOCKED", "{phi}");
+    let plain = call(
+        "global_preview",
+        json!({"global": "IrisDevTest.S137", "count": 1}),
+    );
+    assert_eq!(
+        plain["success"], true,
+        "an ordinary global still previews: {plain}"
+    );
+}
+
+/// B5: the standalone journal_search returned journal contents under dataPolicy=block, which the
+/// bulk-PHI gate refuses on the iris_admin route.
+#[tokio::test]
+#[ignore]
+async fn injection_137_b5_journal_search_is_gated() {
+    let r = call("journal_search", json!({"max_entries": 1}));
+    assert_eq!(r["error_code"], "DATA_POLICY_BLOCKED", "{r}");
+}

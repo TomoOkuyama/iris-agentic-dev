@@ -3424,6 +3424,31 @@ impl IrisTools {
         let _ = log.write(&entry);
     }
 
+    /// Runs the shared policy gate for a tool that has no gate of its own, audits a refusal and
+    /// returns it. `None` means the call may proceed.
+    fn policy_refusal(
+        &self,
+        tool_name: &str,
+        params_json: serde_json::Value,
+    ) -> Option<Result<CallToolResult, McpError>> {
+        let (sm_server, policy) = self.active_server_manager_policy();
+        let server = sm_server.as_deref().unwrap_or("");
+        let gate =
+            crate::policy::gate::dispatch_gate(tool_name, server, policy.as_ref(), &params_json)
+                .err()?;
+        self.write_audit_entry(
+            tool_name,
+            server,
+            policy.as_ref(),
+            "blocked",
+            Some("policy"),
+            None,
+            params_json,
+        );
+        self.record_call(tool_name, false);
+        Some(err_result(gate))
+    }
+
     /// The gate sequence every arbitrary-execution tool runs before it sends a line to IRIS.
     ///
     /// Returns `Some(refusal)` when the call is blocked, `None` when it may proceed. The refusal is
@@ -8916,6 +8941,15 @@ Methods:
             .map(|s| s.to_string());
         let count = p.get("count").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
 
+        // The preview reads the global, and its token is what global_kill accepts, so it answers
+        // to the same blocklist and PHI gates as iris_global (137).
+        if let Some(refusal) = self.policy_refusal(
+            "global_preview",
+            serde_json::json!({"action": "get", "global": global}),
+        ) {
+            return refusal;
+        }
+
         let iris = self.resolve_server(server.as_deref()).await?;
 
         let result = admin_tools::global_preview_impl(
@@ -8957,6 +8991,13 @@ Methods:
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+
+        if let Some(refusal) = self.policy_refusal(
+            "global_kill",
+            serde_json::json!({"action": "kill", "global": global}),
+        ) {
+            return refusal;
+        }
 
         let iris = self.resolve_server(server.as_deref()).await?;
 
@@ -9166,6 +9207,11 @@ Methods:
             .get("server")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        // Journal records carry global values, so the bulk-PHI gate that refuses the iris_admin
+        // route refuses this one too (137).
+        if let Some(refusal) = self.policy_refusal("journal_search", p.clone()) {
+            return refusal;
+        }
         let iris = self.resolve_server(server.as_deref()).await?;
         let result = admin_tools::journal_search_impl(
             &iris,
