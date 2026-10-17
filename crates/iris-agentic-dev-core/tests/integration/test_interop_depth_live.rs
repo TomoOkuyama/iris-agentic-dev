@@ -85,6 +85,34 @@ Write $Select($$$ISERR(sc):"ERR",1:"OK")"#,
     }
 }
 
+/// Removes every version of a seeded rule set. A seeded row that is never removed stays in the
+/// namespace for good: 228 of them had piled up before this existed.
+async fn drop_rule_set(iris: &IrisConnection, name: &str) {
+    let Ok(client) = IrisConnection::http_client() else {
+        return;
+    };
+    let code = format!(
+        r#"Set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM Ens_Rule.RuleSet WHERE Name = ?","{name}")
+While rs.%Next() {{ Do ##class(Ens.Rule.RuleSet).%DeleteId(rs.%Get("ID")) }}
+Write "OK""#,
+        name = name.replace('"', "\"\"")
+    );
+    let _ = iris.execute_via_generator(&code, "USER", &client).await;
+}
+
+/// What `get` says about a rule once its seed has been dropped.
+async fn get_after_drop(iris: &IrisConnection, name: &str) -> serde_json::Value {
+    let params = BusinessRuleInfoParams {
+        action: "get".to_string(),
+        rule_name: Some(name.to_string()),
+        namespace: "USER".to_string(),
+    };
+    let result = handle_iris_business_rule_info(Some(iris), &params)
+        .await
+        .expect("Ok");
+    parse_result(result)
+}
+
 // ---------------------------------------------------------------------------
 // T022 / US1: iris_message_body live — real message returns body + content_type
 // ---------------------------------------------------------------------------
@@ -219,10 +247,16 @@ async fn live_business_rule_info_get_real_rule_returns_success() {
         .await
         .expect("Ok");
     let v = parse_result(result);
+    drop_rule_set(&iris, rule_name).await;
     assert_eq!(v["success"], true, "got: {v}");
     assert_eq!(v["name"], rule_name);
     assert!(v["conditions"].is_array());
     assert!(v["actions"].is_array());
+    let gone = get_after_drop(&iris, rule_name).await;
+    assert_eq!(
+        gone["error_code"], "RULE_NOT_FOUND",
+        "seed left behind: {gone}"
+    );
 }
 
 #[tokio::test]
@@ -244,10 +278,16 @@ async fn live_business_rule_info_list_includes_seeded_rule() {
         .expect("Ok");
     let v = parse_result(result);
     assert_eq!(v["success"], true, "got: {v}");
+    drop_rule_set(&iris, rule_name).await;
     let rules = v["rules"].as_array().expect("rules must be array");
     assert!(
         rules.iter().any(|r| r["name"] == rule_name),
         "seeded rule '{rule_name}' must appear in list: {rules:?}"
+    );
+    let gone = get_after_drop(&iris, rule_name).await;
+    assert_eq!(
+        gone["error_code"], "RULE_NOT_FOUND",
+        "seed left behind: {gone}"
     );
 }
 
