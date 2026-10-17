@@ -105,6 +105,7 @@ mod test_skill_facts_127;
 mod test_skill_frontmatter;
 mod test_skill_install;
 mod test_skill_install_tiers;
+mod test_skill_interop_ui_136;
 mod test_skill_manifest_sync;
 mod test_skill_tiers;
 mod test_skills_mod_unit;

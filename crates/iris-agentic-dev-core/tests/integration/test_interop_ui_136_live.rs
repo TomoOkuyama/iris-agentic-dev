@@ -462,3 +462,76 @@ async fn interop_ui_136_facts_the_skill_states() {
         panic!("{e}");
     }
 }
+
+/// The skill's own examples compile and open in the editors. They are read from SKILL.md, with
+/// `MyApp.` renamed into the test package, so an edit that breaks an example fails here.
+#[tokio::test]
+#[ignore]
+async fn interop_ui_136_the_skill_examples_compile() {
+    let l = live();
+    l.cleanup().await;
+    let skill = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/skills/ensemble-production/SKILL.md"),
+    )
+    .expect("SKILL.md");
+    let blocks: Vec<String> = skill
+        .split("```xml\n")
+        .skip(1)
+        .filter_map(|b| b.split("\n```").next())
+        .map(|b| b.replace("MyApp.", "IADTest136."))
+        .collect();
+    let find = |marker: &str| {
+        blocks
+            .iter()
+            .find(|b| b.contains(marker))
+            .unwrap_or_else(|| panic!("no example containing {marker}"))
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("<!--"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let bpl = find("XData BPL of");
+    let rule = find("XData RuleDefinition of");
+    let dtl = find("XData DTL of");
+    let classes = [
+        ("IADTest136.Fn", FN.to_string()),
+        (
+            "IADTest136.IntakeBP",
+            format!(
+                "Class IADTest136.IntakeBP Extends Ens.BusinessProcessBPL\n{{\n\nXData BPL [ XMLNamespace = \"http://www.intersystems.com/bpl\" ]\n{{\n{bpl}\n}}\n\n}}"
+            ),
+        ),
+        (
+            "IADTest136.IntakeRule",
+            format!(
+                "Class IADTest136.IntakeRule Extends Ens.Rule.Definition\n{{\n\nParameter RuleAssistClass = \"Ens.Rule.GeneralBusinessRuleAssist\";\n\nXData RuleDefinition [ XMLNamespace = \"http://www.intersystems.com/rule\" ]\n{{\n{rule}\n}}\n\n}}"
+            ),
+        ),
+        (
+            "IADTest136.UpperDTL",
+            format!(
+                "Class IADTest136.UpperDTL Extends Ens.DataTransformDTL [ DependsOn = Ens.StringRequest ]\n{{\n\nXData DTL [ XMLNamespace = \"http://www.intersystems.com/dtl\" ]\n{{\n{dtl}\n}}\n\n}}"
+            ),
+        ),
+    ];
+    let mut problems = Vec::new();
+    for (name, src) in &classes {
+        let errs = l.put(name, src).await;
+        if !errs.is_empty() {
+            problems.push(format!("{name}: {errs:?}"));
+        }
+    }
+    for (kind, name) in [
+        ("bpl", "IADTest136.IntakeBP"),
+        ("rules", "IADTest136.IntakeRule"),
+        ("dtl", "IADTest136.UpperDTL"),
+    ] {
+        let got = l.editor(kind, name).await;
+        if got != 200 {
+            problems.push(format!("editor {kind}/{name}: HTTP {got}"));
+        }
+    }
+    l.cleanup().await;
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}

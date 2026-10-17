@@ -24,6 +24,94 @@ trigger: When asked about a production status, to start/stop/restart a productio
 
 ---
 
+## Write what the editors can open
+
+Analysts open processes, transforms and rules in the Management Portal's BPL Editor, DTL Editor and Rule
+Editor, and in the newer editors under `/ui/interop/`. Those editors open three kinds of class only. In an
+ObjectScript project, write these by default:
+
+| You need                  | Write                                                               | Opens in    |
+| ------------------------- | ------------------------------------------------------------------- | ----------- |
+| A business process        | a class extending `Ens.BusinessProcessBPL` with `XData BPL`         | BPL Editor  |
+| A data transformation     | a class extending `Ens.DataTransformDTL` with `XData DTL`           | DTL Editor  |
+| Decision or routing logic | a class extending `Ens.Rule.Definition` with `XData RuleDefinition` | Rule Editor |
+
+Give a rule class its `RuleAssistClass` parameter: `Ens.Rule.GeneralBusinessRuleAssist` for a rule a BPL
+`<rule>` calls, `EnsLib.MsgRouter.RuleAssist` for the rule a router names in `BusinessRuleName`. Without it
+the rule still opens, as type "(unknown)".
+
+A class extending `Ens.BusinessProcess` with `OnRequest`, or `Ens.DataTransform` with a `Transform()`
+method, compiles and runs, but no editor opens it: the editor answers `'X' is not a BPL business process`.
+Write one only when the developer asks for code, and tell them the editor will not open it.
+
+### Moving code into BPL and rules
+
+| In code                                          | In BPL and rules                                                                                                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SendRequestSync(target, req, .resp, 5)`         | `<call target="Agent" async="0" timeout="5">` with `<request>` and `<response>`. On a timeout the `<response>` block is skipped                                                |
+| A call that may fail without failing the process | the `<call>` inside `<scope>` with `<faulthandlers><catchall>`. A failed `<call>` outside a scope ends the process                                                             |
+| `If`/`ElseIf` choosing an outcome                | a general rule. The `<rule>` puts its return value in `resultLocation` and the rules that fired in `reasonLocation`, comma-separated, as `rule#1(duplicate):when#1`            |
+| A list of reasons                                | each rule's `assign` adds to a context property: `Reasons_"duplicate;"`                                                                                                        |
+| A lookup (member exists, duplicate)              | a `[ Final ]` class method in a subclass of `Ens.Rule.FunctionSet`, called in the condition by its bare name: `IsDup(Input)`. A qualified name does not compile in a condition |
+| An UPDATE or any other write                     | a `<code>` step calling a class method, or a business operation. Never in a rule                                                                                               |
+
+Keep rule functions read-only: the Rule Editor's Test button runs them for real.
+
+A general rule's context is the process's generated context class, `<process class>.Context`, so compile the
+BPL class before the rule. Inside the rule, context properties are named bare (`Input`, `Reasons`).
+
+```xml
+<!-- XData BPL of MyApp.IntakeBP -->
+<process language='objectscript' request='Ens.StringRequest' response='Ens.StringResponse'>
+<context>
+<property name='Input' type='%String' instantiate='0'/>
+<property name='Outcome' type='%String' instantiate='0'/>
+<property name='Reasons' type='%String' instantiate='0'/>
+<property name='Why' type='%String' instantiate='0'/>
+</context>
+<sequence>
+<assign property='context.Input' value='request.StringValue' action='set'/>
+<rule name='decide' rule='MyApp.IntakeRule' resultLocation='context.Outcome' reasonLocation='context.Why'/>
+<scope>
+<call name='agent' target='Agent' async='0' timeout='5'>
+<request type='Ens.StringRequest'><assign property='callrequest.StringValue' value='context.Input' action='set'/></request>
+<response type='Ens.StringResponse'/>
+</call>
+<faulthandlers><catchall/></faulthandlers>
+</scope>
+<assign property='response.StringValue' value='context.Outcome_"|"_context.Reasons' action='set'/>
+</sequence>
+</process>
+```
+
+```xml
+<!-- XData RuleDefinition of MyApp.IntakeRule, RuleAssistClass = "Ens.Rule.GeneralBusinessRuleAssist" -->
+<ruleDefinition alias="" context="MyApp.IntakeBP.Context" production="">
+<ruleSet name="" effectiveBegin="" effectiveEnd="">
+<rule name="duplicate">
+<when condition="IsDup(Input)">
+<assign property="Reasons" value="Reasons_&quot;duplicate;&quot;"></assign>
+<return>&quot;invalid&quot;</return>
+</when>
+</rule>
+<return>&quot;further_review&quot;</return>
+</ruleSet>
+</ruleDefinition>
+```
+
+```xml
+<!-- XData DTL of MyApp.UpperDTL -->
+<transform sourceClass='Ens.StringRequest' targetClass='Ens.StringResponse' create='new' language='objectscript'>
+<assign value='$ZCONVERT(source.StringValue,"U")' property='target.StringValue' action='set'/>
+</transform>
+```
+
+A routing rule (`EnsLib.MsgRouter.RuleAssist`, context `EnsLib.MsgRouter.RoutingEngine`) sends with
+`<send transform="" target="OpA">` inside a `<when condition='StartsWith(Document.StringValue,"A")'>`, and
+an `<otherwise>` for the rest.
+
+---
+
 ## Context Detection
 
 **If you have `iris_production` MCP tool available** → use the MCP Process Flow below.
@@ -383,7 +471,10 @@ Create, update, or delete Ensemble credentials. Write-gated **and destructive-ga
 - **Do not restart to fix a config change** — use `update` instead. A restart takes every host
   down to change one setting.
 
-## Common gotchas
+## Code-based processes
+
+When the developer asks for a code-based process (`Ens.BusinessProcess` with `OnRequest`), or you are
+changing one that exists, these hold. The editors will not open it; say so.
 
 ### OnRequest signature — must use `%Library.Persistent`
 
@@ -406,23 +497,6 @@ Method OnRequest(req As %Library.Persistent, output response As %Library.Persist
 }
 ```
 
-### Ens.Request storage — leave it to the compiler
-
-When subclassing `Ens.Request` or `Ens.Response`, do not write an `XData Storage` block. The
-compiler generates one that puts the body in `^Ens.MessageBodyD`. A hand-written
-`<DataLocation>` pointing anywhere else fails at compile time (IRIS 2026.2):
-
-```text
-ERROR #5477: Keyword signature error in MyPkg.MyMsg:Storage:Default,
-keyword 'DataLocation' must be '^Ens.MessageBodyD'
-```
-
-Fix: delete the Storage block and compile again. See `objectscript-guardrails` on Storage.
-
-Long class names are fine. IRIS hashes a long package or class name into a short global name:
-`Test127.VeryLongPackageName.Data.PatientRecordHistory` compiled and saved on 2026.2, with its
-data in a hashed global of 31 characters or fewer. No rename needed.
-
 ### OnResponse required in BusinessProcess
 
 Even if your Business Process only sends fire-and-forget requests, IRIS invokes
@@ -444,6 +518,25 @@ Method OnResponse(
     Return $$$OK
 }
 ```
+
+## Common gotchas
+
+### Ens.Request storage — leave it to the compiler
+
+When subclassing `Ens.Request` or `Ens.Response`, do not write an `XData Storage` block. The
+compiler generates one that puts the body in `^Ens.MessageBodyD`. A hand-written
+`<DataLocation>` pointing anywhere else fails at compile time (IRIS 2026.2):
+
+```text
+ERROR #5477: Keyword signature error in MyPkg.MyMsg:Storage:Default,
+keyword 'DataLocation' must be '^Ens.MessageBodyD'
+```
+
+Fix: delete the Storage block and compile again. See `objectscript-guardrails` on Storage.
+
+Long class names are fine. IRIS hashes a long package or class name into a short global name:
+`Test127.VeryLongPackageName.Data.PatientRecordHistory` compiled and saved on 2026.2, with its
+data in a hashed global of 31 characters or fewer. No rename needed.
 
 ### iris_production start returning "Invalid Production"
 
