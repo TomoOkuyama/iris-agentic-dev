@@ -782,8 +782,10 @@ impl IrisConnection {
             "  If (out=\"\") && (ze'=\"\") && (ze'=\",\") { Set out = \"ERROR($ZERROR): \"_ze_$Char(10) }"
                 .into(),
             // Whatever we captured is partial when the device moved, so refuse the whole
-            // result rather than hand back a plausible-looking fragment.
-            "  If devio'=tmpfile { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" instead of the capture file, so its output was written elsewhere and is lost. Snapshot and restore around the call: Set io=$IO / <call> / Use io\"_$Char(10) }"
+            // result rather than hand back a plausible-looking fragment. Compared without case:
+            // native Windows IRIS gives `$IO` back lower-cased while the temp-file name keeps its
+            // case, and the exact comparison refused every call there from 1.3.2 on (#139).
+            "  If $ZConvert(devio,\"L\")'=$ZConvert(tmpfile,\"L\") { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" instead of the capture file, so its output was written elsewhere and is lost. Snapshot and restore around the call: Set io=$IO / <call> / Use io\"_$Char(10) }"
                 .into(),
             "  Quit out".into(),
             "}".into(),

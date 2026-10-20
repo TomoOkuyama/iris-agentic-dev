@@ -2239,6 +2239,54 @@ pub async fn mermaid_class_impl(
     }))
 }
 
+/// A Mermaid node ID for any text: letters, digits and `_` only, not starting with a digit, and
+/// unique within `taken`. Item names such as `From DEMO LabService ADT` hold spaces, which a node ID
+/// cannot (#144); the real name stays in the label.
+fn mermaid_id(text: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    let mut id: String = text
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    if id.is_empty() || id.starts_with(|c: char| c.is_ascii_digit()) {
+        id.insert(0, 'n');
+    }
+    let mut candidate = id.clone();
+    let mut n = 2;
+    while !taken.insert(candidate.clone()) {
+        candidate = format!("{id}_{n}");
+        n += 1;
+    }
+    candidate
+}
+
+/// Mermaid escapes a quote inside a label as `#quot;`.
+fn mermaid_label(text: &str) -> String {
+    text.replace('"', "#quot;")
+}
+
+/// The flowchart `mermaid_production` returns: the production, then one node per item with its
+/// name and class as the label, disabled items styled `:::disabled`.
+pub fn build_production_diagram(production: &str, items: &[(String, String, bool)]) -> String {
+    let mut taken = std::collections::HashSet::new();
+    let prod_id = mermaid_id(production, &mut taken);
+    let mut diagram = "flowchart TD\n".to_string();
+    diagram.push_str(&format!(
+        "    {prod_id}[\"{}\"]\n",
+        mermaid_label(production)
+    ));
+    for (name, class, enabled) in items {
+        let id = mermaid_id(name, &mut taken);
+        let style = if *enabled { "" } else { ":::disabled" };
+        diagram.push_str(&format!(
+            "    {id}[\"{}\\n{}\"]{style}\n",
+            mermaid_label(name),
+            mermaid_label(class)
+        ));
+        diagram.push_str(&format!("    {prod_id} --> {id}\n"));
+    }
+    diagram
+}
+
 // ── mermaid_production (T103) ─────────────────────────────────────────────────
 
 pub async fn mermaid_production_impl(
@@ -2263,25 +2311,17 @@ pub async fn mermaid_production_impl(
                 .cloned()
                 .unwrap_or_default();
 
-            let mut diagram = "flowchart TD\n".to_string();
-            let safe_prod = production.replace(['.', '%', '-'], "_");
-            diagram.push_str(&format!("    {}[\"{}\"]\n", safe_prod, production));
-
-            for row in &rows {
-                let name = row["Name"]
-                    .as_str()
-                    .unwrap_or("")
-                    .replace(['.', '%', '-'], "_");
-                let class = row["ClassName"].as_str().unwrap_or("");
-                let _category = row["Category"].as_str().unwrap_or("");
-                let enabled = row["Enabled"].as_str().unwrap_or("1") != "0";
-                let style = if enabled { "" } else { ":::disabled" };
-                diagram.push_str(&format!(
-                    "    {}[\"{}\\n{}\"]{}  \n",
-                    name, name, class, style
-                ));
-                diagram.push_str(&format!("    {} --> {}\n", safe_prod, name));
-            }
+            let items: Vec<(String, String, bool)> = rows
+                .iter()
+                .map(|row| {
+                    (
+                        row["Name"].as_str().unwrap_or("").to_string(),
+                        row["ClassName"].as_str().unwrap_or("").to_string(),
+                        row["Enabled"].as_str().unwrap_or("1") != "0",
+                    )
+                })
+                .collect();
+            let diagram = build_production_diagram(production, &items);
 
             ok_json(serde_json::json!({
                 "success": true,
