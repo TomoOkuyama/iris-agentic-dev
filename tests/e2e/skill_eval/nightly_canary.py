@@ -150,6 +150,19 @@ def lift_mentions(payload) -> list:
     return found
 
 
+def describe_result(result) -> str:
+    """Why a canary session failed, in one line: the failed assertions, how many tool calls the
+    session made and how long it ran, and the start of what the model said. "assertions failed"
+    alone could not tell a model outage (no calls, no output) from a broken tool."""
+    failed = [a.description for a in result.assertion_results if not a.passed]
+    said = " ".join((result.llm_output_excerpt or "").split())[:120]
+    return (
+        f"{'; '.join(failed) or 'no assertion failed'} "
+        f"({len(result.tool_calls)} tool calls, {result.duration_seconds:.0f}s, "
+        f"{'said: ' + repr(said) if said else 'no output'})"
+    )
+
+
 def build_report(
     run_id: str,
     timestamp: str,
@@ -158,6 +171,7 @@ def build_report(
     tool_count: Optional[int],
     task_outcomes: dict,
     canary_tasks=CANARY_TASKS,
+    task_details: Optional[dict] = None,
 ) -> CanaryReport:
     """Assemble the report from three already-taken measurements.
 
@@ -203,7 +217,10 @@ def build_report(
                 CanaryCheck(
                     task,
                     bool(outcome),
-                    "assertions passed" if outcome else "assertions failed",
+                    "assertions passed"
+                    if outcome
+                    else "assertions failed"
+                    + (f": {(task_details or {})[task]}" if (task_details or {}).get(task) else ""),
                 )
             )
 
@@ -351,6 +368,7 @@ def run_canary_tasks(
     from tests.e2e.task_loader import TASKS_DIR, load_task
 
     outcomes: dict = {}
+    details: dict = {}
     for task_id in CANARY_TASKS:
         try:
             task = load_task(os.path.join(TASKS_DIR, f"{task_id}.yaml"))
@@ -363,10 +381,13 @@ def run_canary_tasks(
                 iris_container=iris_container,
             )
             outcomes[task_id] = bool(result.passed)
+            if not result.passed:
+                details[task_id] = describe_result(result)
         except Exception as e:  # a wedged session must not take the other two with it
             print(f"  [{task_id}] did not run: {type(e).__name__}: {e}", flush=True)
             outcomes[task_id] = None
-    return outcomes
+            details[task_id] = f"did not run: {type(e).__name__}"
+    return outcomes, details
 
 
 def _main(argv=None) -> int:
@@ -390,7 +411,7 @@ def _main(argv=None) -> int:
     tool_count = probe_tool_surface()
 
     if dry_run:
-        outcomes = {task: True for task in CANARY_TASKS}
+        outcomes, details = {task: True for task in CANARY_TASKS}, {}
         print("dry run: the canary sessions were not started", flush=True)
     else:
         # Per task, on the model the task itself names — all three canary tasks declare a
@@ -405,7 +426,7 @@ def _main(argv=None) -> int:
                 flush=True,
             )
             return 2
-        outcomes = run_canary_tasks(
+        outcomes, details = run_canary_tasks(
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
             model=os.environ.get("CANARY_MODEL", "openai/gpt-4.1"),
             iris_host=os.environ.get("IRIS_HOST"),
@@ -420,6 +441,7 @@ def _main(argv=None) -> int:
         harness_detail=harness_detail,
         tool_count=tool_count,
         task_outcomes=outcomes,
+        task_details=details,
     )
     report.assert_no_lift()
     print(report.render(), flush=True)
