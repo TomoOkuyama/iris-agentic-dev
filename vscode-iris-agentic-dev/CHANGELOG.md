@@ -71,6 +71,12 @@ CycloneDX SBOM, and the repository has a `SECURITY.md` and a production profile.
   9 sessions with the skill and 0 of 8 without it; gpt-6-luna passed nearly all of them either way, and
   with the skill used about half the calls on the rewrite task. The numbers and their limits are in
   `specs/136-interop-ui-artifacts/results.md`.
+- **New skill: `iris-mdx`** (#142), for MDX queries against IRIS BI cubes: hierarchy paths, `NON EMPTY`,
+  `%FILTER` and `%OR`, member keys against captions, calculated members, time navigation, and the
+  queries that return wrong numbers with no error. Asaf Sinay wrote it from his work on the Samples-BI
+  cubes. Each disputed claim was run on 2026.2, which also turned up an IRIS bug: a query with `%MDX`
+  returns nothing after its first run on that build. It is an extra skill, so a bare
+  `iris-agentic-dev skill install` leaves it out; name it, or pass `--all`.
 - **`iris_business_rule_info` reads rule classes.** It used to read only the `Ens.Rule.RuleSet` table
   from before 2012, so it answered `RULE_NOT_FOUND` for every rule the Rule Editor opens. `list` now
   returns rule classes and any legacy rows, each with `kind: class` or `kind: legacy`; `get` on a rule
