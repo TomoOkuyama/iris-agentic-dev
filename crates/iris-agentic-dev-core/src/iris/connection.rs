@@ -742,7 +742,7 @@ impl IrisConnection {
             // #56: use %Library.File.TempFilename() for platform-portable temp path.
             "  Set tmpfile = ##class(%Library.File).TempFilename(\"txt\")".into(),
             "  Set savedIO = $IO".into(),
-            "  Open tmpfile:(\"WNS\"):5".into(),
+            "  Open tmpfile:(\"WNS\":/IOT=\"UTF8\"):5".into(),
             "  If '$TEST { Quit \"ERROR: output capture unavailable\" }".into(),
             "  Use tmpfile".into(),
             "  Try {".into(),
@@ -770,6 +770,7 @@ impl IrisConnection {
             // Read captured output from temp file and return it.
             "  Set out = \"\"".into(),
             "  Set stream = ##class(%Stream.FileCharacter).%New()".into(),
+            "  Set stream.TranslateTable = \"UTF8\"".into(),
             "  Set sc = stream.LinkToFile(tmpfile)".into(),
             "  If $$$ISOK(sc) {".into(),
             "    While 'stream.AtEnd { Set out = out _ stream.ReadLine() _ $Char(10) }".into(),

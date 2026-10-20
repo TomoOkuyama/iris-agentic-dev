@@ -108,3 +108,41 @@ async fn ordinary_output_is_untouched() {
     assert!(!is_generator_error(&out), "unexpected error: {out:?}");
     assert!(out.contains("plain") && out.contains('2'), "got {out:?}");
 }
+
+/// #138: non-ASCII code points must round-trip through the capture tmpfile.
+///
+/// The tmpfile pipe was opened without a translation table, and %Stream.FileCharacter read
+/// it back the same way, so every non-ASCII code point Written by user code collapsed to '?'.
+/// Both ends now pin the table to UTF-8; this exercises hiragana, kanji, an emoji, and a
+/// CJK Extension B surrogate pair end-to-end.
+#[tokio::test]
+#[ignore]
+async fn non_ascii_write_output_survives_capture() {
+    let Some((conn, client)) = make_conn() else {
+        return;
+    };
+
+    let out = conn
+        .execute_via_generator(
+            " Write \"hira=\", \"ひらがな\", !\n Write \"kanji=\", \"漢字\", !\n Write \"emoji=\", \"🍣🍺\", !\n Write \"cjkb=\", \"𠮷野家\"",
+            "USER",
+            &client,
+        )
+        .await
+        .expect("must execute");
+
+    assert!(
+        !is_generator_error(&out),
+        "unexpected generator error: {out:?}"
+    );
+    for expected in ["ひらがな", "漢字", "🍣🍺", "𠮷野家"] {
+        assert!(
+            out.contains(expected),
+            "captured output must preserve {expected:?}; got {out:?}"
+        );
+    }
+    assert!(
+        !out.contains('?'),
+        "no code point should have collapsed to '?', got {out:?}"
+    );
+}
