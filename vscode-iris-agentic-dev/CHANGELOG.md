@@ -1,6 +1,30 @@
 # Changelog
 
-This extension installs the iris-agentic-dev server, and each entry below is a server release. Extension 0.4.36 installs server 1.6.0. Releases with no entry here have their notes on the [releases page](https://github.com/intersystems-community/iris-agentic-dev/releases).
+This extension installs the iris-agentic-dev server, and each entry below is a server release. Extension 0.4.37 installs server 1.6.1. Releases with no entry here have their notes on the [releases page](https://github.com/intersystems-community/iris-agentic-dev/releases).
+
+## v1.6.1
+
+Upgrade if iad reaches IRIS over `https` (`IRIS_SCHEME=https`, or `scheme = "https"` in
+`.iris-agentic-dev.toml`). 1.6.0 shipped with rustls 0.23.45, and RustSec has since published four
+advisories against it and one against rustls-webpki. iad uses rustls for every TLS connection it
+makes: HTTPS and WebSocket calls to IRIS, and the fetches from GitHub behind `skill install` and
+`skill_community`. A connection over plain `http`, the default, never touches it.
+
+### Security
+
+- **rustls 0.23.46 and rustls-webpki 0.103.16.** They fix:
+  - RUSTSEC-2026-0346: the `Debug` output of a client session value printed TLS secrets.
+  - RUSTSEC-2026-0347: data buffered before an ECH rejection went to the outer server.
+  - RUSTSEC-2026-0348: Brotli certificate decompression could allocate up to 1 GiB before the
+    server was authenticated.
+  - RUSTSEC-2026-0349: an unauthenticated ServerHello could downgrade later connections to
+    classical key exchange.
+  - RUSTSEC-2026-0382 (rustls-webpki): certificate verification could accept a distrusted
+    intermediate.
+
+`cargo audit` is clean again. Nothing else changed for callers.
+
+[v1.6.0...v1.6.1](https://github.com/intersystems-community/iris-agentic-dev/compare/v1.6.0...v1.6.1)
 
 ## v1.6.0
 

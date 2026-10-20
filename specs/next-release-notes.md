@@ -1,13 +1,13 @@
 # Next release notes (staging)
 
-Baseline: v1.6.0, whose notes are final in `docs/release-notes/v1.6.0.md`. What follows is
+Baseline: v1.6.1, whose notes are final in `docs/release-notes/v1.6.1.md`. What follows is
 staged for the release after it.
 
 I add an entry here as each user-facing change lands, so release notes are not
 reconstructed from `git log` at tag time. At release time this drains into
 `docs/release-notes/vX.Y.Z.md`, which is what `docs/release-checklist.md` step 4 gates on
-and what becomes the GitHub release body via `gh release edit <tag> --notes`. There is no
-`CHANGELOG.md` in this repo, so that release body is the changelog.
+and what becomes the GitHub release body via `gh release edit <tag> --notes`. The VS Code
+extension's `CHANGELOG.md` is built from those files (#136).
 
 Rules for anything written here:
 
