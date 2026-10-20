@@ -90,3 +90,32 @@ fn the_skill_stays_under_its_cap() {
         "ensemble-production is {n} bytes; the cap is 30000"
     );
 }
+
+/// US3: pyprod keeps its Python path, and the skill says what a Portal edit does to it. Measured on a
+/// throwaway container (research-docs.md F11).
+#[test]
+fn the_python_path_states_the_round_trip_limit() {
+    let t = skill();
+    let start = t
+        .find("**Rules for declarative definitions:**")
+        .expect("declarative rules");
+    let rules = &t[start..start + t[start..].find("\n---").expect("end of the rules")];
+    for needle in ["source of truth", "overwritten the next time", "BPL Editor"] {
+        assert!(rules.contains(needle), "the pyprod rules must contain {needle:?}");
+    }
+}
+
+/// 138 research: `Ens.Director` has no `SendRequestSync`. The verified route to a process from a
+/// script is an adapterless service's `SendRequestSync` (interop_ui_136_facts_the_skill_states).
+#[test]
+fn the_skill_does_not_teach_a_method_ens_director_lacks() {
+    let t = skill();
+    assert!(
+        !t.contains("##class(Ens.Director).SendRequestSync"),
+        "Ens.Director has no SendRequestSync"
+    );
+    assert!(
+        t.contains("svc.SendRequestSync("),
+        "the testing section must show the adapterless service's SendRequestSync"
+    );
+}

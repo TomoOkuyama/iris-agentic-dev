@@ -255,6 +255,10 @@ intersystems_pyprod /path/to/my_production.py
 - `adapter_settings` = adapter settings (`Target="Adapter"` in XML)
 - Unknown keys in `host_settings`/`adapter_settings` produce warnings at load time, not errors — check output carefully
 - Do not call `director.*` inside a declarative script; it is run by the external CLI, not inside IRIS
+- The Python file is the source of truth. pyprod generates an ordinary `Ens.Production` class, but a
+  setting changed in the Portal's Production Configuration page is overwritten the next time the file
+  loads (round-trip editing was closed as Won't Do). Change the file, and tell an analyst who asks for a
+  Portal edit. A pyprod business process is a Python class, so the BPL Editor does not open it either
 
 ---
 
@@ -555,7 +559,7 @@ This replaces the Portal "Test" UI and works in automated scripts.
 Set req = ##class(MyPkg.MyRequest).%New()
 Set req.SomeField = "test value"
 
-// 2. Get a handle to the adapterless service (or use SendRequestSync on a BP)
+// 2. Get a handle to the adapterless service (an item with PoolSize="0")
 Set sc = ##class(Ens.Director).CreateBusinessService("MyPkg.MyService", .svc)
 If $$$ISERR(sc) { Write $System.Status.GetErrorText(sc) Quit }
 
@@ -566,18 +570,22 @@ If $$$ISERR(sc) { Write $System.Status.GetErrorText(sc) Quit }
 Write "Response: ", resp.SomeResponseField
 ```
 
-For services that use an adapter (file, HTTP, etc.) you cannot call `ProcessInput`
-directly — inject via a Business Process instead:
+For services that use an adapter (file, HTTP, etc.) you cannot call `ProcessInput` directly. Add an
+adapterless service item (`PoolSize="0"`) to the production for testing, and send from it to the process
+by its config item name. `Ens.Director` has no `SendRequestSync`; the service object does:
 
 ```objectscript
-// Send directly to a Business Process by config item name
+Set sc = ##class(Ens.Director).CreateBusinessService("TestSvc", .svc)
+If $$$ISERR(sc) { Write $System.Status.GetErrorText(sc) Quit }
 Set req = ##class(MyPkg.MyRequest).%New()
 Set req.SomeField = "test value"
-
-Set sc = ##class(Ens.Director).SendRequestSync("MyProcessConfigName", req, .resp, 30)
+Set sc = svc.SendRequestSync("MyProcessConfigName", req, .resp, 30)
 If $$$ISERR(sc) { Write $System.Status.GetErrorText(sc) Quit }
 Write "Done: ", resp.SomeResponseField
 ```
+
+`StartProduction` and `StopProduction` move the current device of the job that calls them. In a script
+that writes its results, save `$IO` before the call and `Use` it again after.
 
 ---
 

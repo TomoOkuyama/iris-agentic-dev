@@ -275,3 +275,28 @@ Files read, not edited: `/Users/tdyar/ws/grievance-demo/src/Grievance/Process/In
 - Which Rule Editor (new or Zen) the 2026.2 Interoperability > Build > Business Rules menu opens by default: only the HealthShare 2026.1 doc states that the Zen editor was replaced. Both are installed live.
 - HL7 rule types could not be checked live (Community image, no `EnsLib.HL7`); the class reference is from the IRIS for Health 2026.2 docs.
 - Not exercised live: a production run of the synchronous `<call timeout>`, `reasonLocation` when no rule fires, a rule `assign` into a BPL list property, `@process.<setting>` in `target`/`timeout`, compiling a rule whose context class is missing, and create/delete of an `Ens.Rule.RuleSet` row.
+
+## F11. pyprod 0.2.0: what a Portal edit does to a Python-defined production (T040)
+
+**Answer.** An edit made the way the Portal's Production Configuration page makes it is overwritten
+the next time the Python definition loads. Whether System Default Settings override a setting the
+Python definition sets is UNKNOWN: the check below could not tell.
+
+- DOCS: DP-454977 "PyProd round-trip editing" was closed as Won't Do on 2026-09-14 ("Modifications made
+  in the GUI would be overwritten by client-side source updates").
+- LIVE, 2026-10-17, on a throwaway `intersystemsdc/iris-community:2026.2` container (`iad136-pyprod`,
+  port 39773, removed afterwards), pyprod 0.2.0 installed with
+  `irispython -m pip install --target /usr/irissys/mgr/python intersystems-pyprod==0.2.0`, USER enabled
+  with `%EnsembleMgr.EnableNamespace("USER",1)`:
+  - `/tmp/prod136.py` defines `PP136.Prod` with one `OperationItem("Out",
+"EnsLib.File.PassthroughOperation", host_settings={"AlertOnError": True})`. Loading it with the
+    `intersystems_pyprod` CLI printed `Load finished successfully.`; the item's setting read `True`.
+  - The Portal's path: open `Ens.Config.Production` `PP136.Prod`, set the item's `AlertOnError` setting
+    to `0`, `%Save()` and `SaveToClass()`. Both returned 1, and the class's `ProductionDefinition` XData
+    then held `AlertOnError">0<`.
+  - Loading `/tmp/prod136.py` again put the XData back to `AlertOnError">True<`.
+  - System Default Settings: an `Ens.Config.DefaultSettings` row for `PP136.Prod`/`Out`/`AlertOnError`
+    = 0 saved (1). `Ens.Director.GetHostSettingValue("Out","AlertOnError")` on the running production
+    answered `True` with the row and without it, which reads the definition and does not settle
+    whether the running host saw 0. pyprod's API reference says system defaults override item settings
+    "even when a value is explicitly set"; not measured here, so the skill does not say it.
