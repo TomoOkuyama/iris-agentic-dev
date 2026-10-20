@@ -171,7 +171,8 @@ binary:
 > set up iris-agentic-dev against a local IRIS container
 ```
 
-That brings the MCP server, every bundled skill, and the compile-on-save hooks. The binary still has
+That brings the MCP server, the ten core skills plus the no-PWS setup skill, and the compile-on-save
+hooks. The other bundled skills stay one `skill_describe` call away. The binary still has
 to land on your PATH, which is what the third line is for: the setup skill installs it, finds or
 starts an IRIS, clears the expired default password on a fresh container, and verifies with a
 query. If you would rather do that part yourself, follow [Install](#install) first and the skill
