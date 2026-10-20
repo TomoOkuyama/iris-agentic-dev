@@ -458,9 +458,11 @@ async fn interop_ui_136_facts_the_skill_states() {
     if std::env::var("IAD136_KEEP").is_err() {
         l.cleanup().await;
     }
-    if let Err(e) = result {
-        panic!("{e}");
-    }
+    assert!(
+        result.is_ok(),
+        "{}",
+        result.as_ref().err().cloned().unwrap_or_default()
+    );
 }
 
 /// The skill's own examples compile and open in the editors. They are read from SKILL.md, with

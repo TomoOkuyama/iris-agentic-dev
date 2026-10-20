@@ -101,7 +101,10 @@ fn the_python_path_states_the_round_trip_limit() {
         .expect("declarative rules");
     let rules = &t[start..start + t[start..].find("\n---").expect("end of the rules")];
     for needle in ["source of truth", "overwritten the next time", "BPL Editor"] {
-        assert!(rules.contains(needle), "the pyprod rules must contain {needle:?}");
+        assert!(
+            rules.contains(needle),
+            "the pyprod rules must contain {needle:?}"
+        );
     }
 }
 
