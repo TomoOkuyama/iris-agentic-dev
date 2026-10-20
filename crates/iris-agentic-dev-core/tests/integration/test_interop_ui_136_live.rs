@@ -406,10 +406,13 @@ async fn body(l: &Live) -> Result<(), String> {
 
     // Facts 3 and 5: run the production. One call per step: StartProduction moves the device of
     // the job that calls it, so the calls that report come after it, each in its own job.
+    // `CleanProduction` clears a production an earlier test left suspended: IRIS will not start one
+    // of a different name while it is, and a force stop does not clear it.
     let started = l
         .run(
             r#" Set tIO=$IO
  Try { Do ##class(Ens.Director).StopProduction(10,1) } Catch { }
+ Do ##class(Ens.Director).CleanProduction()
  Kill ^IADTest136
  Set sc=##class(Ens.Director).StartProduction("IADTest136.Prod")
  Use tIO
