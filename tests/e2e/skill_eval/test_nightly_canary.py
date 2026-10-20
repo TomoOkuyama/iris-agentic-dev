@@ -298,3 +298,34 @@ def test_a_failed_task_reports_which_assertions_failed_and_what_the_session_did(
     )
     detail = next(c.detail for c in broken.checks if c.name == "MCP-01")
     assert "calls iris_query" in detail, detail
+
+
+def test_a_task_model_missing_from_the_opencode_catalog_is_named_before_any_session():
+    """In October 2026 opencode's catalog dropped the Bedrock Sonnet 4.5 id all three canary tasks
+    named. Each session then died in a second with "Model not found" and the night read as three
+    failed tasks. A model the catalog does not list is a misconfiguration, found before spending."""
+    from tests.e2e.skill_eval.nightly_canary import models_missing_from_catalog
+
+    catalog = "amazon-bedrock/us.anthropic.claude-sonnet-4-6\nopenai/gpt-4.1\n"
+    tasks = {
+        "MCP-01": "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "SKILL-01": "amazon-bedrock/us.anthropic.claude-sonnet-4-6",
+        "FULL-01": None,
+    }
+    assert models_missing_from_catalog(tasks, catalog, default="openai/gpt-4.1") == [
+        ("MCP-01", "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    ]
+    assert models_missing_from_catalog(tasks, catalog, default="openai/gpt-5") == [
+        ("MCP-01", "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+        ("FULL-01", "openai/gpt-5"),
+    ]
+
+
+def test_every_canary_task_names_a_model():
+    import os
+
+    from tests.e2e.task_loader import TASKS_DIR, load_task
+
+    for task_id in CANARY_TASKS:
+        task = load_task(os.path.join(TASKS_DIR, f"{task_id}.yaml"))
+        assert task.model, f"{task_id} names no model, so the night runs on whatever the default is"

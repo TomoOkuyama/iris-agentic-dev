@@ -328,6 +328,40 @@ def canary_models(canary_tasks=CANARY_TASKS) -> dict:
     return models
 
 
+def models_missing_from_catalog(task_models: dict, catalog: str, default: str) -> list:
+    """`[(task_id, model)]` for every canary task whose model `opencode models` does not list.
+
+    A model opencode does not know ends the session in a second with "Model not found", which
+    the night used to report as a failed task. `task_models` maps a task to its own `model:` or
+    None; `default` is what a task without one runs on.
+    """
+    known = {line.strip() for line in catalog.splitlines() if line.strip()}
+    return [
+        (task_id, model or default)
+        for task_id, model in task_models.items()
+        if (model or default) not in known
+    ]
+
+
+def opencode_catalog() -> str:
+    """What `opencode models` lists, or "" when it cannot be asked (the check then names every
+    model as missing, which is a misconfigured night, not a pass)."""
+    import subprocess
+    import tempfile
+
+    # An empty config home, as the sessions get: an operator's own opencode config can restrict
+    # the providers it lists.
+    with tempfile.TemporaryDirectory() as home:
+        env = {**os.environ, "XDG_CONFIG_HOME": home}
+        try:
+            out = subprocess.run(
+                ["opencode", "models"], capture_output=True, text=True, timeout=120, env=env
+            )
+            return out.stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+
 def missing_credentials(env=None, models=None) -> list:
     """`[(task_id, what it needs)]` for every canary task nothing in `env` can authenticate.
 
@@ -416,6 +450,18 @@ def _main(argv=None) -> int:
     else:
         # Per task, on the model the task itself names — all three canary tasks declare a
         # Bedrock model, and `run_task` lets that override `CANARY_MODEL`.
+        unknown = models_missing_from_catalog(
+            canary_models(), opencode_catalog(), os.environ.get("CANARY_MODEL", "openai/gpt-4.1")
+        )
+        if unknown:
+            for task_id, model in unknown:
+                print(f"  [{task_id}] opencode does not list {model}", flush=True)
+            print(
+                "A canary task names a model opencode does not know, so its session would end "
+                "with 'Model not found'. Exiting 2 rather than reporting failed tasks.",
+                flush=True,
+            )
+            return 2
         unauthenticated = missing_credentials()
         if unauthenticated:
             for task_id, need in unauthenticated:

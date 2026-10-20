@@ -388,3 +388,14 @@ def test_an_unpriced_open_weight_model_is_refused():
 
     with pytest.raises(UnknownModel):
         provider_block("bedrock-compat/openai.unpriced", api_key="t")
+
+
+def test_an_amazon_bedrock_model_uses_opencodes_own_provider():
+    """The nightly canary's three tasks name `amazon-bedrock/...`, which opencode reaches with its
+    built-in provider and AWS_BEARER_TOKEN_BEDROCK. The 135 provider table refused it, so every
+    canary session died before its first call; the block is what 1.5.0 wrote for every model."""
+    from tests.e2e.skill_eval.models import provider_block
+
+    block = provider_block("amazon-bedrock/us.anthropic.claude-sonnet-4-6", api_key="k")
+    assert block == {"openai": {"options": {"apiKey": "k"}}}
+    assert "amazon-bedrock" not in block, "the built-in provider needs no block of ours"

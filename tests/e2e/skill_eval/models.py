@@ -84,6 +84,12 @@ def provider_block(model: str, api_key: str, effort: str | None = None) -> dict:
                 "and the run would be labelled with a setting it did not use"
             )
         return {"openai": {"options": {"apiKey": api_key}}}
+    if provider == "amazon-bedrock":
+        # opencode's built-in provider, authenticated by AWS_BEARER_TOKEN_BEDROCK; nothing of ours
+        # to declare. The openai block is what every model got before this table existed.
+        if effort is not None:
+            raise UnknownModel("effort is not wired for amazon-bedrock models")
+        return {"openai": {"options": {"apiKey": api_key}}}
     if provider == "bedrock-oai":
         prices = PRICES.get(model_id)
         if prices is None:
