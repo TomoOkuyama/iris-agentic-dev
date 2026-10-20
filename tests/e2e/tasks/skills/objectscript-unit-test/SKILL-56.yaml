@@ -11,144 +11,144 @@ prompt: |
   The instance runs in the Docker container iris-dev-iris.
 skill: objectscript-unit-test
 fixtures:
-- name: Bench56.Alpha
-  content: |
-    Class Bench56.Alpha Extends %RegisteredObject
-    {
+  - name: Bench56.Alpha
+    content: |
+      Class Bench56.Alpha Extends %RegisteredObject
+      {
 
-    ClassMethod Twice(pX As %Integer) As %Integer
-    {
-        Quit pX * 2
-    }
+      ClassMethod Twice(pX As %Integer) As %Integer
+      {
+          Quit pX * 2
+      }
 
-    }
-- name: Bench56.Beta
-  content: |
-    Class Bench56.Beta Extends %RegisteredObject
-    {
+      }
+  - name: Bench56.Beta
+    content: |
+      Class Bench56.Beta Extends %RegisteredObject
+      {
 
-    /// Limit pX to the range pLo to pHi.
-    ClassMethod Clamp(pX As %Integer, pLo As %Integer, pHi As %Integer) As %Integer
-    {
-        If pX < pLo Quit pLo
-        Quit pX
-    }
+      /// Limit pX to the range pLo to pHi.
+      ClassMethod Clamp(pX As %Integer, pLo As %Integer, pHi As %Integer) As %Integer
+      {
+          If pX < pLo Quit pLo
+          Quit pX
+      }
 
-    }
-- name: Bench56.Gamma
-  content: |
-    Class Bench56.Gamma Extends %RegisteredObject
-    {
+      }
+  - name: Bench56.Gamma
+    content: |
+      Class Bench56.Gamma Extends %RegisteredObject
+      {
 
-    /// "abc" gives "cba".
-    ClassMethod Rev(pStr As %String) As %String
-    {
-        Quit pStr
-    }
+      /// "abc" gives "cba".
+      ClassMethod Rev(pStr As %String) As %String
+      {
+          Quit pStr
+      }
 
-    }
-- name: Bench56.AlphaTest
-  content: |
-    Class Bench56.AlphaTest Extends %UnitTest.TestCase
-    {
+      }
+  - name: Bench56.AlphaTest
+    content: |
+      Class Bench56.AlphaTest Extends %UnitTest.TestCase
+      {
 
-    Method TestTwice()
-    {
-        Do $$$AssertEquals(##class(Bench56.Alpha).Twice(4), 8, "twice 4")
-    }
+      Method TestTwice()
+      {
+          Do $$$AssertEquals(##class(Bench56.Alpha).Twice(4), 8, "twice 4")
+      }
 
-    }
-- name: Bench56.BetaTest
-  content: |
-    Class Bench56.BetaTest Extends %UnitTest.TestCase
-    {
+      }
+  - name: Bench56.BetaTest
+    content: |
+      Class Bench56.BetaTest Extends %UnitTest.TestCase
+      {
 
-    Method TestLow()
-    {
-        Do $$$AssertEquals(##class(Bench56.Beta).Clamp(-3, 0, 10), 0, "below the range")
-    }
+      Method TestLow()
+      {
+          Do $$$AssertEquals(##class(Bench56.Beta).Clamp(-3, 0, 10), 0, "below the range")
+      }
 
-    Method VerifyHigh()
-    {
-        Do $$$AssertEquals(##class(Bench56.Beta).Clamp(15, 0, 10), 10, "above the range")
-    }
+      Method VerifyHigh()
+      {
+          Do $$$AssertEquals(##class(Bench56.Beta).Clamp(15, 0, 10), 10, "above the range")
+      }
 
-    }
-- name: Bench56.GammaTest
-  content: |
-    Class Bench56.GammaTest Extends %RegisteredObject
-    {
+      }
+  - name: Bench56.GammaTest
+    content: |
+      Class Bench56.GammaTest Extends %RegisteredObject
+      {
 
-    Method TestRev()
-    {
-        If ##class(Bench56.Gamma).Rev("abc") '= "cba" {
-            Write "FAIL TestRev", !
-        }
-    }
+      Method TestRev()
+      {
+          If ##class(Bench56.Gamma).Rev("abc") '= "cba" {
+              Write "FAIL TestRev", !
+          }
+      }
 
-    }
+      }
 check: |-
   set io=$io try { set ok=0 if ((##class(Bench56.Alpha).Twice(4)=8)&&(##class(Bench56.Beta).Clamp(15,0,10)=10)&&(##class(Bench56.Beta).Clamp(-3,0,10)=0)&&(##class(Bench56.Beta).Clamp(5,0,10)=5)&&(##class(Bench56.Gamma).Rev("abc")="cba")) { set root="/tmp/ut52/" do ##class(%File).CreateDirectoryChain(root_"Bench56/") set sc=$system.OBJ.ExportUDL("Bench56.AlphaTest.cls",root_"Bench56/AlphaTest.cls") do ##class(%File).CreateDirectoryChain(root_"Bench56/") set sc=$system.OBJ.ExportUDL("Bench56.BetaTest.cls",root_"Bench56/BetaTest.cls") do ##class(%File).CreateDirectoryChain(root_"Bench56/") set sc=$system.OBJ.ExportUDL("Bench56.GammaTest.cls",root_"Bench56/GammaTest.cls") set ^UnitTestRoot=root open "/dev/null":"W" use "/dev/null" do ##class(%UnitTest.Manager).RunTest("Bench56","/noload/nodelete") use io close "/dev/null" set idx=^UnitTest.Result,su=$order(^UnitTest.Result(idx,"")) set an=0,ap=0,aa=999999,as=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Bench56.AlphaTest",m)) quit:m=""  set an=an+1,as=as_m_"," if +$list(^UnitTest.Result(idx,su,"Bench56.AlphaTest",m),1) { set ap=ap+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Bench56.AlphaTest",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Bench56.AlphaTest",m,n),2),1,6)="Assert" { set na=na+1 } } if na<aa { set aa=na } } set bn=0,bp=0,ba=999999,bs=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Bench56.BetaTest",m)) quit:m=""  set bn=bn+1,bs=bs_m_"," if +$list(^UnitTest.Result(idx,su,"Bench56.BetaTest",m),1) { set bp=bp+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Bench56.BetaTest",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Bench56.BetaTest",m,n),2),1,6)="Assert" { set na=na+1 } } if na<ba { set ba=na } } set gn=0,gp=0,ga=999999,gs=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Bench56.GammaTest",m)) quit:m=""  set gn=gn+1,gs=gs_m_"," if +$list(^UnitTest.Result(idx,su,"Bench56.GammaTest",m),1) { set gp=gp+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Bench56.GammaTest",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Bench56.GammaTest",m,n),2),1,6)="Assert" { set na=na+1 } } if na<ga { set ga=na } } set ok=((an>=1)&&(ap=an)&&(aa>=1)&&(bn>=2)&&(bp=bn)&&(ba>=1)&&(gn>=1)&&(gp=gn)&&(ga>=1)) } } catch { use io try { close "/dev/null" } catch { } set ok=0 } write $select(ok:"PASS",1:"FAIL")
 solution:
-- name: Bench56.Beta
-  content: |
-    Class Bench56.Beta Extends %RegisteredObject
-    {
+  - name: Bench56.Beta
+    content: |
+      Class Bench56.Beta Extends %RegisteredObject
+      {
 
-    /// Limit pX to the range pLo to pHi.
-    ClassMethod Clamp(pX As %Integer, pLo As %Integer, pHi As %Integer) As %Integer
-    {
-        If pX < pLo Quit pLo
-        If pX > pHi Quit pHi
-        Quit pX
-    }
+      /// Limit pX to the range pLo to pHi.
+      ClassMethod Clamp(pX As %Integer, pLo As %Integer, pHi As %Integer) As %Integer
+      {
+          If pX < pLo Quit pLo
+          If pX > pHi Quit pHi
+          Quit pX
+      }
 
-    }
-- name: Bench56.Gamma
-  content: |
-    Class Bench56.Gamma Extends %RegisteredObject
-    {
+      }
+  - name: Bench56.Gamma
+    content: |
+      Class Bench56.Gamma Extends %RegisteredObject
+      {
 
-    /// "abc" gives "cba".
-    ClassMethod Rev(pStr As %String) As %String
-    {
-        Set tOut = ""
-        For i = $Length(pStr):-1:1 {
-            Set tOut = tOut _ $Extract(pStr, i)
-        }
-        Quit tOut
-    }
+      /// "abc" gives "cba".
+      ClassMethod Rev(pStr As %String) As %String
+      {
+          Set tOut = ""
+          For i = $Length(pStr):-1:1 {
+              Set tOut = tOut _ $Extract(pStr, i)
+          }
+          Quit tOut
+      }
 
-    }
-- name: Bench56.BetaTest
-  content: |
-    Class Bench56.BetaTest Extends %UnitTest.TestCase
-    {
+      }
+  - name: Bench56.BetaTest
+    content: |
+      Class Bench56.BetaTest Extends %UnitTest.TestCase
+      {
 
-    Method TestLow()
-    {
-        Do $$$AssertEquals(##class(Bench56.Beta).Clamp(-3, 0, 10), 0, "below the range")
-    }
+      Method TestLow()
+      {
+          Do $$$AssertEquals(##class(Bench56.Beta).Clamp(-3, 0, 10), 0, "below the range")
+      }
 
-    Method TestHigh()
-    {
-        Do $$$AssertEquals(##class(Bench56.Beta).Clamp(15, 0, 10), 10, "above the range")
-    }
+      Method TestHigh()
+      {
+          Do $$$AssertEquals(##class(Bench56.Beta).Clamp(15, 0, 10), 10, "above the range")
+      }
 
-    }
-- name: Bench56.GammaTest
-  content: |
-    Class Bench56.GammaTest Extends %UnitTest.TestCase
-    {
+      }
+  - name: Bench56.GammaTest
+    content: |
+      Class Bench56.GammaTest Extends %UnitTest.TestCase
+      {
 
-    Method TestRev()
-    {
-        Do $$$AssertEquals(##class(Bench56.Gamma).Rev("abc"), "cba", "reverse")
-    }
+      Method TestRev()
+      {
+          Do $$$AssertEquals(##class(Bench56.Gamma).Rev("abc"), "cba", "reverse")
+      }
 
-    }
+      }
 tags:
-- unittest
-- extends
-- naming
-- package
+  - unittest
+  - extends
+  - naming
+  - package
