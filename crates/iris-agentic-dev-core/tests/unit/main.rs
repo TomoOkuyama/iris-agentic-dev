@@ -20,6 +20,7 @@ mod test_benchmark_scoring;
 mod test_benchmark_task_loading;
 mod test_bundled_skills;
 mod test_cargo_config;
+mod test_changelog;
 mod test_cli_dispatch_helpers;
 mod test_code_edit_gate_unit;
 mod test_compile_params;
