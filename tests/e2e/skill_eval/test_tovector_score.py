@@ -13,7 +13,7 @@ def test_score_vector_python():
     import yaml
 
     key = os.environ["OPENAI_API_KEY"]
-    model = "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    model = "amazon-bedrock/us.anthropic.claude-sonnet-4-6"
     task = yaml.safe_load(
         open("tests/e2e/tasks/skills/targeted/VECTOR-PYTHON-SEARCH.yaml")
     )

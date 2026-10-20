@@ -5,8 +5,9 @@
 //! spec 129 research R1–R6), not written from memory of what IRIS says.
 
 use iris_agentic_dev_core::tools::error_hints::{
-    cited_sections, coding_pack_from, coding_pack_on, matcher_ids, rules, runtime_error_hint,
-    sql_error_hint, Hint,
+    cited_sections, coding_pack_from, coding_pack_on, compile_error_hint, compiled_source_hint,
+    execute_method_hint, matcher_ids, rules, runtime_error_hint, sql_error_hint, Hint,
+    KNOWN_CALLBACKS,
 };
 use iris_agentic_dev_core::tools::{IrisTools, Toolset};
 use std::path::Path;
@@ -388,6 +389,190 @@ fn coding_pack_switch_reads_off_values() {
     }
 }
 
+// ── delete_callback_oid (CORPUS-40, transcripts 2026-10-10) ──────────────────────────────────
+//
+// Strings copied from a live compile on iris-dev-iris: `Method %OnDelete()` gives #5477 and
+// `ClassMethod %OnDelete(pId As %String)` gives #5478. Five of six sessions on CORPUS-40 read one
+// of these, fixed the signature, and killed the wrong node because the argument is an OID list.
+
+fn class_method_error(class: &str, method: &str) -> String {
+    format!(
+        "ERROR #5477: Keyword signature error in {class}:Method:{method}, keyword 'ClassMethod' must be '1'"
+    )
+}
+
+fn oid_signature_error(class: &str, method: &str) -> String {
+    format!(
+        "ERROR #5478: Keyword signature error in {class}:Method:{method}, keyword 'method argument/s signature' must be '%Library.ObjectIdentity' or its subclass"
+    )
+}
+
+#[test]
+fn a_delete_callback_given_the_wrong_signature_is_told_the_argument_is_an_oid() {
+    for method in ["%OnDelete", "%OnAfterDelete"] {
+        for msg in [
+            class_method_error("Bench.Tracked", method),
+            oid_signature_error("Bench.Tracked", method),
+        ] {
+            let h = compile_error_hint(&["Compiling class Bench.Tracked".into(), msg.clone()])
+                .unwrap_or_else(|| panic!("no hint for {msg}"));
+            assert_eq!(h.rule(), "delete_callback_oid");
+            assert!(h.text().contains(method), "{}", h.text());
+            assert!(h.text().contains("$$$oidPrimary(oid)"), "{}", h.text());
+            assert!(h.text().contains("%ObjectIdentity"), "{}", h.text());
+        }
+    }
+}
+
+#[test]
+fn the_hint_says_a_clean_compile_does_not_prove_the_id() {
+    let h = compile_error_hint(&[oid_signature_error("A.B", "%OnDelete")]).unwrap();
+    assert!(
+        h.text().contains("delete a row"),
+        "the agent stopped at the first clean compile: {}",
+        h.text()
+    );
+}
+
+#[test]
+fn other_keyword_signature_errors_get_no_oid_hint() {
+    // %OnAfterSave takes a plain Boolean; a wrong signature there is not an OID problem.
+    let m = "ERROR #5478: Keyword signature error in A.B:Method:%OnAfterSave, keyword 'method argument/s signature' must be '%Library.Boolean'";
+    assert!(compile_error_hint(&[m.into()]).is_none());
+    assert!(compile_error_hint(&[class_method_error("A.B", "%OnAfterSave")]).is_none());
+    assert!(compile_error_hint(&[
+        "ERROR #5030: An error occurred while compiling class 'A.B'".into()
+    ])
+    .is_none());
+    assert!(compile_error_hint(&[]).is_none());
+}
+
+#[test]
+fn a_user_method_named_like_a_callback_prefix_is_not_matched() {
+    assert!(compile_error_hint(&[class_method_error("A.B", "OnDelete")]).is_none());
+    assert!(compile_error_hint(&[class_method_error("A.B", "%OnDeleteExtra")]).is_none());
+}
+
+// ── unknown_persistent_callback (IMP-0002 and IMP-0004 re-runs) ──────────────────────────────
+//
+// Live on iris-dev-iris 2026.2: a persistent class with `Method %OnBeforeDelete()` compiled
+// clean and `%DeleteId` never called it; the `%OnDelete` class method beside it ran once.
+// `%Dictionary.CompiledMethod` for %Library.Persistent has no %OnBeforeDelete and no
+// %OnAfterRemove. Three of nine with-skills sessions invented one of them and reported success.
+
+fn persistent(method_line: &str) -> String {
+    format!("Class A.B Extends %Persistent\n{{\n\nProperty Name As %String;\n\n{method_line}\n{{\n    Quit $$$OK\n}}\n}}")
+}
+
+#[test]
+fn an_invented_persistent_callback_gets_the_never_called_hint() {
+    for m in [
+        "%OnBeforeDelete",
+        "%OnAfterRemove",
+        "%OnBeforeRemove",
+        "%OnDeleted",
+    ] {
+        for line in [
+            format!("Method {m}() As %Status [ Private, ServerOnly = 1 ]"),
+            format!("  ClassMethod {m}(oid As %ObjectIdentity) As %Status"),
+        ] {
+            let src = persistent(&line);
+            let h = compiled_source_hint(&src).unwrap_or_else(|| panic!("no hint for {src}"));
+            assert_eq!(h.rule(), "unknown_persistent_callback");
+            assert!(h.text().contains(m), "{}", h.text());
+            assert!(h.text().contains("never calls"), "{}", h.text());
+            assert!(h.text().contains("%OnDelete"), "{}", h.text());
+        }
+    }
+}
+
+#[test]
+fn every_real_persistent_callback_gets_no_hint() {
+    for m in KNOWN_CALLBACKS {
+        let src = persistent(&format!("Method {m}() As %Status"));
+        assert!(compiled_source_hint(&src).is_none(), "{m}");
+    }
+    assert!(KNOWN_CALLBACKS.contains(&"%OnDelete") && KNOWN_CALLBACKS.contains(&"%OnAfterDelete"));
+    assert!(!KNOWN_CALLBACKS.contains(&"%OnBeforeDelete"));
+}
+
+#[test]
+fn only_a_class_that_extends_persistent_is_judged() {
+    let m = "Method %OnAfterRemove() As %Status\n{\n    Quit $$$OK\n}";
+    // Another superclass may define the callback, so the hint would be a guess.
+    assert!(compiled_source_hint(&format!("Class A.B Extends Other.Base\n{{\n{m}\n}}")).is_none());
+    assert!(
+        compiled_source_hint(&format!("Class A.B Extends %RegisteredObject\n{{\n{m}\n}}"))
+            .is_none()
+    );
+    assert!(compiled_source_hint(m).is_none());
+    assert!(compiled_source_hint("").is_none());
+    // The usual mixins add no %On* methods.
+    let src = format!("Class A.B Extends (%Persistent, %Populate, %XML.Adaptor)\n{{\n{m}\n}}");
+    assert!(compiled_source_hint(&src).is_some());
+    let src = format!("Class A.B Extends %Library.Persistent\n{{\n{m}\n}}");
+    assert!(compiled_source_hint(&src).is_some());
+}
+
+#[test]
+fn a_comment_or_longer_name_is_not_a_callback_method() {
+    let src = "Class A.B Extends %Persistent\n{\n// Method %OnAfterRemove is not a thing\nMethod Run() As %Status\n{\n    Quit $$$OK\n}\n}";
+    assert!(compiled_source_hint(src).is_none());
+}
+
+// ── objects across iris_execute_method calls (CORPUS-40, 56-call session) ────────────────────
+//
+// Strings copied from the transcript and checked live: `%New` answers `1060@Bench.Tracked`, and
+// `%Save` on the class answers `<METHOD DOES NOT EXIST> 148 Execute+7^IrisDevTmp.IrisDevRun… %Save,Bench.Tracked`.
+// Each call is a new process, so the object is gone before the next call can use it.
+
+const MISSING_SAVE: &str =
+    "<METHOD DOES NOT EXIST> 148 Execute+7^IrisDevTmp.IrisDevRun01e4ed96a144.1 %Save,Bench.Tracked";
+
+#[test]
+fn a_new_object_reference_is_told_it_ends_with_the_call() {
+    let h = execute_method_hint("Bench.Tracked", "%New", "1060@Bench.Tracked").unwrap();
+    assert_eq!(h.rule(), "object_reference_result");
+    assert!(h.text().contains("1060@Bench.Tracked"), "{}", h.text());
+    assert!(h.text().contains("iris_execute"), "{}", h.text());
+    assert!(h.text().contains("new process"), "{}", h.text());
+}
+
+#[test]
+fn an_instance_method_on_the_class_is_told_there_is_no_object() {
+    for m in ["%Save", "%Id", "%Reload", "%Close"] {
+        let out = format!("<METHOD DOES NOT EXIST> 148 Execute+7^IrisDevTmp.X.1 {m},Bench.Tracked");
+        let h = execute_method_hint("Bench.Tracked", m, &out)
+            .unwrap_or_else(|| panic!("no hint for {m}"));
+        assert_eq!(h.rule(), "instance_method_on_class");
+        assert!(h.text().contains(m), "{}", h.text());
+        assert!(h.text().contains("iris_execute"), "{}", h.text());
+    }
+    let _ = MISSING_SAVE;
+}
+
+#[test]
+fn ordinary_results_and_other_misses_get_no_object_hint() {
+    assert!(execute_method_hint("A.B", "Total", "5").is_none());
+    assert!(execute_method_hint("A.B", "%OpenId", "").is_none());
+    assert!(
+        execute_method_hint("A.B", "Total", "12@steps").is_none(),
+        "not an object reference"
+    );
+    assert!(execute_method_hint(
+        "A.B",
+        "Nope",
+        "<METHOD DOES NOT EXIST> 148 Execute+7^X.1 Nope,A.B"
+    )
+    .is_none());
+    assert!(execute_method_hint(
+        "A.B",
+        "%DeleteId",
+        "<METHOD DOES NOT EXIST> 148 Execute+7^X.1 %DeleteIdx,A.B"
+    )
+    .is_none());
+}
+
 // ── the rule table (FR-003, FR-004) ──────────────────────────────────────────────────────────
 
 #[test]
@@ -397,7 +582,7 @@ fn every_rule_has_a_matcher_and_every_matcher_a_rule() {
     in_file.sort_unstable();
     in_code.sort_unstable();
     assert_eq!(in_file, in_code);
-    assert_eq!(in_file.len(), 7);
+    assert_eq!(in_file.len(), 11);
 }
 
 /// FR-003: the skill reference lives only in `hint_ref`, so turning the pack off really drops it.
@@ -424,7 +609,7 @@ fn no_hint_text_names_a_bundled_skill() {
 #[test]
 fn every_cited_skill_section_exists() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert_eq!(cited_sections().len(), 7);
+    assert_eq!(cited_sections().len(), 11);
     for (skill, heading) in cited_sections() {
         let path = root.join(format!("skills/skills/{skill}/SKILL.md"));
         let text =
@@ -455,11 +640,15 @@ fn every_placeholder_in_a_template_is_filled() {
         )
         .unwrap(),
         runtime_error_hint(&class_missing("Security.Users"), "USER").unwrap(),
+        compile_error_hint(&[oid_signature_error("Bench.CapB", "%OnDelete")]).unwrap(),
+        compiled_source_hint(&persistent("Method %OnAfterRemove() As %Status")).unwrap(),
+        execute_method_hint("Bench.Tracked", "%New", "1060@Bench.Tracked").unwrap(),
+        execute_method_hint("Bench.Tracked", "%Save", "<METHOD DOES NOT EXIST> 148 Execute+7^IrisDevTmp.IrisDevRun01e4ed96a144.1 %Save,Bench.Tracked").unwrap(),
     ];
     let mut seen: Vec<&str> = cases.iter().map(|h| h.rule()).collect();
     seen.sort_unstable();
     seen.dedup();
-    assert_eq!(seen.len(), 7, "one case per rule");
+    assert_eq!(seen.len(), 11, "one case per rule");
     for h in &cases {
         assert!(
             !h.text().contains('{') && !h.text().contains('}'),

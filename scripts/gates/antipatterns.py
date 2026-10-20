@@ -1828,6 +1828,108 @@ def check_unpowered_result() -> list[Finding]:
     )
 
 
+# ---------------------------------------------------------------------------
+# objectscript-splice
+#
+# Shipped instance: `iris_global` spliced `global_name` into generated ObjectScript, so
+# `X) Kill ^Y Set q=$Get(^X` made a read-only `get` kill a global with write tools off (fixed in
+# ee46c79). The 137 inventory found about 40 more sites. Two shapes give a site away:
+#
+# - a `format!` placeholder sitting directly inside a quote of the generated text: `"{x}"` in a
+#   raw string, `\"{x}\"` in a normal one, or `'{x}'` in SQL. Caller text there can close the
+#   literal. `os_str_expr` emits its own quotes, so a safe site splices `{x_expr}` unquoted.
+# - `.replace('"', "\\\"")`: a backslash escape. ObjectScript has none; a quote is doubled.
+#
+# A placeholder named `*_lit` holds `os_lit_inner(value)`, which is built to sit between quotes, so it
+# is not flagged. The suffix is the claim; review checks the binding. A SCREAMING_CASE placeholder
+# names a Rust constant, which carries no caller text, so it is not flagged either.
+#
+# Not flagged: a bare `{x}` splice, because code builders splice generated fragments that way.
+# research.md lists those by hand. A site that is safe for a reason the detector cannot see (the
+# value had its quotes doubled earlier) carries a `splice-ok: <reason>` comment within the three
+# lines above it.
+# ---------------------------------------------------------------------------
+
+RAW_STRING = re.compile(r'r(#+)"(.*?)"\1', re.S)
+NORMAL_STRING = re.compile(r'(?<![r#\w])"((?:[^"\\]|\\.)*)"', re.S)
+PLACEHOLDER = r"\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\}"
+QUOTED_IN_RAW = re.compile(r'(?<!\{)"' + PLACEHOLDER + r'"')
+QUOTED_ESCAPED = re.compile(r'\\"' + PLACEHOLDER + r'\\"')
+QUOTED_SQL = re.compile(r"'" + PLACEHOLDER + r"'")
+BACKSLASH_ESCAPE = re.compile(r"""\.replace\(\s*'"'\s*,\s*"\\\\\\""\s*\)""")
+# What makes a literal generated code rather than a message: an ObjectScript command or function,
+# or a SQL statement keyword.
+OBJECTSCRIPT_TEXT = re.compile(
+    r"\b(Set|Write|Do|Quit|Kill|If|For|While|Return|Throw)\s|##class\(|\$[A-Z][A-Za-z]*\(|\bzn\s",
+)
+SQL_TEXT = re.compile(
+    r"\b(SELECT|INSERT|UPDATE|DELETE)\b.*\b(FROM|INTO|SET|WHERE)\b", re.S | re.I
+)
+SPLICE_OK = "splice-ok:"
+
+
+def _literals(text: str):
+    """(offset of the body, body, is_raw) for every string literal in masked Rust source."""
+    spans = []
+    for m in RAW_STRING.finditer(text):
+        spans.append((m.start(), m.end(), m.start(2), m.group(2), True))
+    taken = [(a, b) for a, b, *_ in spans]
+    for m in NORMAL_STRING.finditer(text):
+        if any(a <= m.start() < b for a, b in taken):
+            continue
+        spans.append((m.start(), m.end(), m.start(1), m.group(1), False))
+    return [(off, body, is_raw) for _, _, off, body, is_raw in spans]
+
+
+def objectscript_splice_findings(files: dict[str, str]) -> list[Finding]:
+    found = []
+    for path, raw in files.items():
+        if "/src/" not in path:
+            continue
+        text = mask_comments(blank_inline_tests(raw))
+        raw_lines = raw.splitlines()
+
+        def line_of(offset: int) -> int:
+            return text.count("\n", 0, offset) + 1
+
+        def marked(line: int) -> bool:
+            window = raw_lines[max(0, line - 4) : line]
+            return any(SPLICE_OK in w for w in window)
+
+        hits: list[tuple[int, str]] = []
+        for off, body, is_raw in _literals(text):
+            if OBJECTSCRIPT_TEXT.search(body):
+                rx = QUOTED_IN_RAW if is_raw else QUOTED_ESCAPED
+                hits += [(off + q.start(), q.group(0)) for q in rx.finditer(body)]
+            if SQL_TEXT.search(body):
+                hits += [
+                    (off + q.start(), q.group(0)) for q in QUOTED_SQL.finditer(body)
+                ]
+        for q in BACKSLASH_ESCAPE.finditer(text):
+            hits.append((q.start(), "backslash escape"))
+        for offset, what in sorted(set(hits)):
+            line = line_of(offset)
+            if marked(line) or re.search(r"_lit(?::[^}]*)?\}|\{[A-Z][A-Z0-9_]*\}", what):
+                continue
+            if what == "backslash escape":
+                msg = (
+                    "escapes a quote with a backslash; ObjectScript has no backslash escape, so "
+                    "the quote still closes the literal. Use os_str_expr."
+                )
+            else:
+                msg = (
+                    f"splices {what} inside a quote of generated code; caller text there can "
+                    "close the literal and run. Splice os_str_expr(value) unquoted, bind SQL "
+                    "values as ?, or validate the name first and say so with splice-ok."
+                )
+            found.append(Finding("objectscript-splice", f"{path}:{line}", msg))
+    return found
+
+
+def check_objectscript_splice() -> list[Finding]:
+    return objectscript_splice_findings(_src_texts())
+
+
 CHECKS = {
     "vacuous-tests": check_vacuous_tests,
     "empty-tests": check_empty_tests,
@@ -1845,11 +1947,13 @@ CHECKS = {
     "prose-only-enum": check_prose_only_enum,
     "scored-exception": check_scored_exception,
     "unpowered-result": check_unpowered_result,
+    "objectscript-splice": check_objectscript_splice,
 }
 
 # Findings in these classes always fail the gate, baseline or not: the class is fully
 # cleaned up in the tree, so any instance is new by definition.
 NO_BASELINE = {
+    "objectscript-splice",
     "error-sentinels",
     "self-referential-gates",
     "version-consistency",

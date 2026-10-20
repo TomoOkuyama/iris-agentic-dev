@@ -116,7 +116,7 @@ jobs:
         #
         # Locally: 1023 passed, 71 skipped, 16 deselected in 50 s.
         run: |
-          python -m pytest tests/e2e benchmark/harbor \
+          python -m pytest tests/e2e .improve/tests benchmark/harbor \
             -m "not requires_iris and not network_curl and not billable" -q
         env:
           PYTHONPATH: ${{ github.workspace }}

@@ -1,0 +1,53 @@
+id: SKILL-60
+prompt: |
+  The production Bench60.Prod in the BENCHMARK namespace has a file service FileIn and a file
+  operation FileOut, and neither is configured. Configure them in the production definition: FileIn
+  reads files from the directory /tmp/b60in and hands each one to FileOut, and FileOut writes files to
+  the directory /tmp/b60out. Do not start the production. Leave the production class compiled on the
+  server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench60.Prod
+    content: |
+      Class Bench60.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench60.Prod">
+      <Item Name="FileIn" ClassName="EnsLib.File.PassthroughService" PoolSize="1" Enabled="true">
+      </Item>
+      <Item Name="FileOut" ClassName="EnsLib.File.PassthroughOperation" PoolSize="1" Enabled="true">
+      </Item>
+      </Production>
+      }
+
+      }
+check: |
+  try { set ok=0 set pr=##class(Ens.Config.Production).%OpenId("Bench60.Prod") for i=1:1:pr.Items.Count() { set it=pr.Items.GetAt(i) for j=1:1:it.Settings.Count() { set st=it.Settings.GetAt(j) set v(it.Name,st.Target,st.Name)=st.Value } } set ok=($get(v("FileIn","Adapter","FilePath"))="/tmp/b60in")&&($get(v("FileIn","Host","TargetConfigNames"))="FileOut")&&($get(v("FileOut","Adapter","FilePath"))="/tmp/b60out") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench60.Prod
+    content: |
+      Class Bench60.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench60.Prod">
+      <Item Name="FileIn" ClassName="EnsLib.File.PassthroughService" PoolSize="1" Enabled="true">
+        <Setting Target="Adapter" Name="FilePath">/tmp/b60in</Setting>
+        <Setting Target="Host" Name="TargetConfigNames">FileOut</Setting>
+      </Item>
+      <Item Name="FileOut" ClassName="EnsLib.File.PassthroughOperation" PoolSize="1" Enabled="true">
+        <Setting Target="Adapter" Name="FilePath">/tmp/b60out</Setting>
+      </Item>
+      </Production>
+      }
+
+      }
+tags:
+  - production
+  - settings

@@ -1,0 +1,148 @@
+id: SKILL-62
+prompt: |
+  In the USER namespace, IadAihub135.Q62.ToolSet is an AI Hub tool set with two tools from
+  IadAihub135.Q62.Tool, Reverse and Shout. Its XData carries an Authorization policy
+  (IadAihub135.Q62.DenyPolicy) that is meant to deny Reverse and let Shout run, but when a tool manager
+  loads the tool set both tools run. Make the tool set deny Reverse and allow Shout. Leave the classes
+  compiled on the server. No LLM call is needed and none will be made.
+
+  IRIS: host localhost, web port 52781, username _SYSTEM, password SYS, namespace USER.
+  The instance runs in the Docker container iad-aihub-iris (IRIS 2026.3.0AI build 154, with AI Hub).
+skill: iris-ai-hub
+namespace: USER
+fixtures:
+  - name: IadAihub135.Q62.Tool
+    content: |
+      Class IadAihub135.Q62.Tool Extends %AI.Tool
+      {
+
+      /// Return the text reversed.
+      /// text: the string to reverse
+      ClassMethod Reverse(text As %String) As %String
+      {
+          Return $Reverse(text)
+      }
+
+      /// Return the text in upper case.
+      /// text: the string to shout
+      ClassMethod Shout(text As %String) As %String
+      {
+          Return $ZConvert(text, "U")
+      }
+
+      }
+  - name: IadAihub135.Q62.DenyPolicy
+    content: |
+      Include %AI
+
+      Class IadAihub135.Q62.DenyPolicy Extends (%AI.Policy.Authorization, %XML.Adaptor)
+      {
+
+      Parameter XMLNAME = "Authorization";
+
+      Property Blocked As list Of %String(MAXLEN = "", XMLITEMNAME = "Blocked", XMLPROJECTION = "ELEMENT");
+
+      Method %CanExecute(toolref As %String, call As %DynamicObject, metadata As %DynamicObject) As %Status
+      {
+          Set tSC = $$$OK
+          For i = 1:1:..Blocked.Count() {
+              If call.name = ..Blocked.GetAt(i) {
+                  Set tSC = $$$ERROR($$$AICoreToolAccessDenied, "blocked by IadAihub135.Q62.DenyPolicy: " _ call.name)
+                  Quit
+              }
+          }
+          Quit tSC
+      }
+
+      }
+  - name: IadAihub135.Q62.ToolSet
+    content: |
+      Class IadAihub135.Q62.ToolSet Extends %AI.ToolSet [ DependsOn = (IadAihub135.Q62.Tool, IadAihub135.Q62.DenyPolicy) ]
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q62">
+        <Policies>
+          <Authorization Class="IadAihub135.Q62.DenyPolicy">
+            <Blocked>Reverse</Blocked>
+          </Authorization>
+        </Policies>
+        <Include Class="IadAihub135.Q62.Tool" />
+      </ToolSet>
+      }
+
+      }
+check: |
+  try { set ok=0, m=##class(%AI.ToolMgr).%New() do m.AddTool(##class(IadAihub135.Q62.ToolSet).%New()) set denied=0 try { set r=m.ExecuteTool("Reverse",{"text":"abc"}) } catch e { set denied=(e.DisplayString()["blocked by IadAihub135.Q62.DenyPolicy") } set s=m.ExecuteTool("Shout",{"text":"abc"}) set ok=denied&&$isobject(s)&&(s.value="ABC") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: IadAihub135.Q62.Tool
+    content: |
+      Class IadAihub135.Q62.Tool Extends %AI.Tool
+      {
+
+      /// Return the text reversed.
+      /// text: the string to reverse
+      ClassMethod Reverse(text As %String) As %String
+      {
+          Return $Reverse(text)
+      }
+
+      /// Return the text in upper case.
+      /// text: the string to shout
+      ClassMethod Shout(text As %String) As %String
+      {
+          Return $ZConvert(text, "U")
+      }
+
+      }
+  - name: IadAihub135.Q62.DenyPolicy
+    content: |
+      Include %AI
+
+      Class IadAihub135.Q62.DenyPolicy Extends (%AI.Policy.Authorization, %XML.Adaptor)
+      {
+
+      Parameter XMLNAME = "Authorization";
+
+      Property Blocked As list Of %String(MAXLEN = "", XMLITEMNAME = "Blocked", XMLPROJECTION = "ELEMENT");
+
+      Method %CanExecute(toolref As %String, call As %DynamicObject, metadata As %DynamicObject) As %Status
+      {
+          Set tSC = $$$OK
+          For i = 1:1:..Blocked.Count() {
+              If call.name = ..Blocked.GetAt(i) {
+                  Set tSC = $$$ERROR($$$AICoreToolAccessDenied, "blocked by IadAihub135.Q62.DenyPolicy: " _ call.name)
+                  Quit
+              }
+          }
+          Quit tSC
+      }
+
+      }
+  - name: IadAihub135.Q62.ToolSet
+    content: |
+      Class IadAihub135.Q62.ToolSet Extends %AI.ToolSet [ DependsOn = (IadAihub135.Q62.Tool, IadAihub135.Q62.DenyPolicy) ]
+      {
+
+      XData Definition [ MimeType = application/xml ]
+      {
+      <ToolSet Name="IadAihub135Q62">
+        <Policies>
+          <Authorization Class="IadAihub135.Q62.DenyPolicy">
+            <Blocked>Reverse</Blocked>
+            <Blocked>Reverse</Blocked>
+          </Authorization>
+        </Policies>
+        <Include Class="IadAihub135.Q62.Tool" />
+      </ToolSet>
+      }
+
+      }
+teardown: |
+  do ##class(%ConfigStore.Configuration).Delete("AI.LLM.IadAihub135Q62"), ##class(%Wallet.KeyValue).Delete("IadAihub135.Q62") do ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag"), ##class(%SQL.Statement).%ExecDirect(,"DROP TABLE IadAihub135.Q66Rag_Config") new $namespace set $namespace="%SYS" if ##class(Security.Applications).Exists("/mcp/iadaihub135") { set sc=##class(Security.Applications).Delete("/mcp/iadaihub135") throw:$system.Status.IsError(sc) ##class(%Exception.StatusException).CreateFromStatus(sc) } write "teardown done"
+
+tags:
+  - ai-hub
+  - policy
+  - tool-set

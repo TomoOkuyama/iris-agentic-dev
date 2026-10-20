@@ -33,6 +33,59 @@
 #   `iris-ai-hub` tasks a skill edit may be fitted to (`--side train`); SKILL-24 and SKILL-25 stay on
 #   the holdout for the same skill. All four run on iad-aihub-iris (build 139) in USER.
 #
+# - **135 moved seven skill tasks to train, from `tests/e2e/tasks/skills/read.toml`.** SKILL-02, -03
+#   and -05 (the guardrails edit b854b2c, IMP-0006 to IMP-0008), SKILL-09 and SKILL-16 (130 rounds 3
+#   and 4 read their transcripts), SKILL-24 and SKILL-25 (132 and IMP-0009/IMP-0010). A task someone
+#   read to decide an edit cannot give a held-out figure, and `improve skills` leaves it out. The
+#   skills they measure need fresh held-out tasks (specs/135-skill-evidence).
+#
+# - **SKILL-26 to SKILL-29 are holdout from the day they were written (135, 2026-10-11).** They are
+#   `objectscript-guardrails` tasks under `tests/e2e/tasks/skills/objectscript-guardrails/`: a delete
+#   callback that takes an OID, an admin task that SQL writes cannot do, an empty `$LIST`, and a nested
+#   transaction. Each fact is in the skill text and each check was run live: false against the stub,
+#   true against the reference, false against the wrong-answer variant named in its commit.
+#
+# - **SKILL-30 to SKILL-36 are holdout from the day they were written (135, 2026-10-11).** SKILL-30 to
+#   SKILL-32 measure `objectscript-sql-patterns` (an INTO variable after a miss, a NULL-or-future date
+#   filter, `$ZDATETIME` in an INSERT); SKILL-33 to SKILL-36 measure `iris-query-plans` (a repair
+#   after a bulk load that skipped indexes, `INSERT %NOINDEX` from embedded SQL, a staleness check by
+#   `%NOINDEX`, `CREATE INDEX` on a table that already holds rows). Each check was run live on a
+#   scratch IRIS 2026.2: false against the stub, true against the reference.
+#
+# - **SKILL-37 to SKILL-44 are holdout from the day they were written (135, 2026-10-11).** SKILL-37 to
+#   SKILL-40 measure `objectscript-tdd` (a class that compiles clean and fails when called: a typo'd
+#   local twice, a misspelled dynamic method name, `Quit` with a value inside `For`); SKILL-41 to
+#   SKILL-44 measure `iris-agentic-dev` (loading an XML export: two classes, a one-line export, a
+#   parameter, a replaced base class). Each check was run live on a scratch IRIS 2026.2.
+#
+# - **SKILL-45 to SKILL-47 are holdout from the day they were written (135, 2026-10-11).** They measure
+#   `objectscript-list-patterns`: de-duplicating a list that holds an empty element (the skill's own
+#   `seen(item)` pattern raises on it), removing items from a `%ListOfDataTypes` in place, and
+#   reversing a list with no elements.
+#
+# - **SKILL-48 to SKILL-51 are holdout from the day they were written (135, 2026-10-11).** They measure
+#   `iris-sql`: a column named with a reserved word, a prefix search whose prefix holds `_` or `%`,
+#   the row count of a bulk UPDATE, and an upsert on a unique key. SKILL-11 (DDL) is the fifth.
+#
+# - **SKILL-52 to SKILL-61 are holdout from the day they were written (135, 2026-10-12).** SKILL-52 to
+#   SKILL-56 measure `objectscript-unit-test` (a test class named by the skill's convention, `Test*` name
+#   and `%UnitTest.TestCase` rules, scaffold placeholders); SKILL-57 to SKILL-61 measure
+#   `ensemble-production` (an up-check that is not `GetActiveProductionName`, a hot disable of one host, the
+#   five production states, adapter against host settings, driving a service with `CreateBusinessService`).
+#   The ensemble tasks need `%EnsembleMgr.EnableNamespace("BENCHMARK",1)` on the container first.
+#
+# - **SKILL-67 to SKILL-69 are holdout from the day they were written (136, 2026-10-17).** They measure
+#   whether `ensemble-production` gets agents to write what the Portal's editors open: SKILL-67 rewrites a
+#   code-based process and its rules as BPL and a rule class with the behaviour kept (a lookalike of
+#   grievance-demo's IntakeBP), SKILL-68 a DTL, SKILL-69 a routing rule. A correctness check with no
+#   net-positive claim (136 Q4).
+#
+# - **SKILL-62 to SKILL-66 are holdout from the day they were written (135, 2026-10-12).** They measure
+#   `iris-ai-hub` on iad-aihub-iris (build 154), which lost its holdout when SKILL-24 and SKILL-25 were read:
+#   a one-entry XData policy that loads empty, `%CanExecute`'s bare-name argument, the `StreamChat` callback
+#   class, a ToolSet query's parameters and `MaxRows`, and `AddDocument` with and without a `source`. None
+#   makes an LLM call.
+#
 # One caveat that the split cannot fix and the report has to carry instead: I wrote the 42 corpus
 # tasks knowing what iad's 81 tools can do. Authoring is not tuning — no description, prompt or skill
 # was changed while looking at a result from these tasks — but a corpus written by the tool author is
@@ -52,6 +105,13 @@ train = [
   "SKILL-21",
   "SKILL-22",
   "SKILL-23",
+  "SKILL-02",
+  "SKILL-03",
+  "SKILL-05",
+  "SKILL-09",
+  "SKILL-16",
+  "SKILL-24",
+  "SKILL-25",
 ]
 
 holdout = [
@@ -97,24 +157,61 @@ holdout = [
   "CORPUS-40",
   "CORPUS-41",
   "SKILL-01",
-  "SKILL-02",
-  "SKILL-03",
   "SKILL-04",
-  "SKILL-05",
   "SKILL-06",
   "SKILL-07",
   "SKILL-08",
-  "SKILL-09",
   "SKILL-10",
   "SKILL-11",
   "SKILL-12",
   "SKILL-14",
   "SKILL-15",
-  "SKILL-16",
   "SKILL-17",
   "SKILL-18",
   "SKILL-19",
   "SKILL-20",
-  "SKILL-24",
-  "SKILL-25",
+  "SKILL-26",
+  "SKILL-27",
+  "SKILL-28",
+  "SKILL-29",
+  "SKILL-30",
+  "SKILL-31",
+  "SKILL-32",
+  "SKILL-33",
+  "SKILL-34",
+  "SKILL-35",
+  "SKILL-36",
+  "SKILL-37",
+  "SKILL-38",
+  "SKILL-39",
+  "SKILL-40",
+  "SKILL-41",
+  "SKILL-42",
+  "SKILL-43",
+  "SKILL-44",
+  "SKILL-45",
+  "SKILL-46",
+  "SKILL-47",
+  "SKILL-48",
+  "SKILL-49",
+  "SKILL-50",
+  "SKILL-51",
+  "SKILL-52",
+  "SKILL-53",
+  "SKILL-54",
+  "SKILL-55",
+  "SKILL-56",
+  "SKILL-57",
+  "SKILL-58",
+  "SKILL-59",
+  "SKILL-60",
+  "SKILL-61",
+  "SKILL-62",
+  "SKILL-63",
+  "SKILL-64",
+  "SKILL-65",
+  "SKILL-66",
+  "SKILL-67",
+  "SKILL-68",
+  "SKILL-69",
 ]

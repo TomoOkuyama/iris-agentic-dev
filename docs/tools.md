@@ -1107,7 +1107,13 @@ iris_message_body(message_id="123456", acknowledgePhi=true)
 
 ### `iris_business_rule_info`
 
-List or inspect Ensemble business rules.
+List or inspect business rules. It reads rule classes, which extend `Ens.Rule.Definition` and hold an
+`XData RuleDefinition` block (the kind the Rule Editor opens), and the legacy `Ens.Rule.RuleSet` table
+from before 2012. Each result says which with `kind: "class"` or `kind: "legacy"`.
+
+`get` on a rule class returns its rule type (`Ens.Rule.GeneralBusinessRuleAssist`,
+`EnsLib.MsgRouter.RuleAssist`, ...), its context class, and each rule set's rules with their `when`
+conditions and actions. On a legacy rule set it returns condition and action counts only. Earlier versions read the legacy table alone, so it answered `RULE_NOT_FOUND` for every rule class.
 
 | Parameter   | Type   | Default  | Notes                             |
 | ----------- | ------ | -------- | --------------------------------- |
@@ -1118,7 +1124,7 @@ List or inspect Ensemble business rules.
 
 ```text
 iris_business_rule_info(action="list")
-iris_business_rule_info(action="get", rule_name="MyApp.RoutingRule")
+iris_business_rule_info(action="get", rule_name="MyApp.RoutingRule")   # the rule class name
 ```
 
 ---

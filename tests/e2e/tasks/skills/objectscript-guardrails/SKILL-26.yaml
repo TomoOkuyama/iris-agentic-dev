@@ -1,0 +1,49 @@
+id: SKILL-26
+prompt: |
+  Bench.Doc in the BENCHMARK namespace is a persistent class. The application keeps a marker for every
+  stored document in the global ^Bench.Doc.Live(id), where id is the document's object id. Make
+  deleting a document with %DeleteId remove that document's marker and leave every other document's
+  marker alone. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-guardrails
+fixtures:
+  - name: Bench.Doc
+    content: |
+      Class Bench.Doc Extends %Persistent
+      {
+
+      Property Title As %String;
+
+      /// Record the marker the application reads.
+      ClassMethod Mark(pId As %Integer)
+      {
+          Set ^Bench.Doc.Live(pId) = 1
+      }
+
+      }
+check: |
+  try { do ##class(Bench.Doc).%KillExtent() set a=##class(Bench.Doc).%New() set a.Title="a" do a.%Save() set b=##class(Bench.Doc).%New() set b.Title="b" do b.%Save() set ia=a.%Id(),ib=b.%Id() do ##class(Bench.Doc).Mark(ia) do ##class(Bench.Doc).Mark(ib) kill a,b set sc=##class(Bench.Doc).%DeleteId(ia) set ok=($system.Status.IsOK(sc)&&'$data(^Bench.Doc.Live(ia))&&$data(^Bench.Doc.Live(ib))&&(##class(Bench.Doc).%ExistsId(ib))) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench.Doc
+    content: |
+      Class Bench.Doc Extends %Persistent
+      {
+
+      Property Title As %String;
+
+      /// Record the marker the application reads.
+      ClassMethod Mark(pId As %Integer)
+      {
+          Set ^Bench.Doc.Live(pId) = 1
+      }
+
+      ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly = 1 ]
+      {
+          Kill ^Bench.Doc.Live($$$oidPrimary(oid))
+          Quit $$$OK
+      }
+
+      }
+tags: [callbacks, delete, oid]

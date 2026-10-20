@@ -96,10 +96,10 @@ async fn xecute(
 
 /// Escape a string for safe interpolation into an ObjectScript double-quoted literal.
 /// Uses ObjectScript conventions: " → "", \n → $Char(10), \r → $Char(13).
+/// What goes between the quotes of a literal: `os_lit_inner`. The old version doubled quotes but
+/// wrote line breaks as the text `$Char(10)` inside the literal, which changed the value (137).
 fn os_quote(s: &str) -> String {
-    s.replace('"', "\"\"")
-        .replace('\n', "$Char(10)")
-        .replace('\r', "$Char(13)")
+    crate::objectscript::os_lit_inner(s)
 }
 
 /// Parse "code|msg" output from SCM xecute helpers. Returns (action_code, msg).
@@ -448,9 +448,9 @@ pub async fn handle_iris_source_control(
 /// The `SCMSTATUS` sentinel lets the caller distinguish a real result from a transport/error
 /// line (the executor may append `ERROR($ZERROR): …` on subsequent lines).
 fn status_check_code(doc: &str, username: &str, password: &str) -> String {
-    let doc_q = os_quote(doc);
-    let user_q = os_quote(username);
-    let pass_q = os_quote(password);
+    let doc_lit = os_quote(doc);
+    let user_lit = os_quote(username);
+    let pass_lit = os_quote(password);
     // Each risky step is wrapped in TRY/CATCH so a runtime error (SourceControlCreate failing,
     // GetStatus <PROTECT>, an SCM provider that has no MenuItems query, …) can never abort the
     // job before the SCMSTATUS sentinel is written. Without this, any partial failure produced
@@ -458,11 +458,11 @@ fn status_check_code(doc: &str, username: &str, password: &str) -> String {
     format!(
         "set isErr=0,isInSC=0,editable=0,isCheckedOut=0,owner=\"\" \
          set hasCheckOut=0,hasUndoCheckout=0,hasAddToSC=0 \
-         try {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{user_q}\",\"{pass_q}\",.created,.flags,.outuser) }} catch {{ set isErr=1 }} \
-         try {{ set sc=##class(%Studio.SourceControl.Interface).GetStatus(\"{doc_q}\",.isInSC,.editable,.isCheckedOut,.owner) if $system.Status.IsError(sc) {{ set isErr=1 }} }} catch {{ set isErr=1 }} \
+         try {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{user_lit}\",\"{pass_lit}\",.created,.flags,.outuser) }} catch {{ set isErr=1 }} \
+         try {{ set sc=##class(%Studio.SourceControl.Interface).GetStatus(\"{doc_lit}\",.isInSC,.editable,.isCheckedOut,.owner) if $system.Status.IsError(sc) {{ set isErr=1 }} }} catch {{ set isErr=1 }} \
          try {{ \
            set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") \
-           set sc=rset.Execute(\"%SourceMenu\",\"{doc_q}\",\"\") \
+           set sc=rset.Execute(\"%SourceMenu\",\"{doc_lit}\",\"\") \
            while rset.Next() {{ \
              set itemName=rset.GetData(1),itemEnabled=rset.GetData(2) \
              if itemEnabled&&(itemName=\"%CheckOut\") {{ set hasCheckOut=1 }} \
@@ -628,10 +628,10 @@ fn parse_checked_out_by(raw: &str) -> Option<(String, Option<String>)> {
 /// Prefix that initializes a SCM session via SourceControlCreate and binds obj=%SourceControl.
 /// All SCM methods are instance methods — they require an active %SourceControl object.
 fn scm_init_prefix(username: &str, password: &str) -> String {
-    let user_q = os_quote(username);
-    let pass_q = os_quote(password);
+    let user_lit = os_quote(username);
+    let pass_lit = os_quote(password);
     format!(
-        "set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{user_q}\",\"{pass_q}\",.created,.flags,.outuser) \
+        "set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{user_lit}\",\"{pass_lit}\",.created,.flags,.outuser) \
          set obj=$get(%SourceControl) \
          if '$IsObject(obj) {{ write \"SCM_UNAVAILABLE\" quit }} "
     )
@@ -662,12 +662,12 @@ pub(crate) fn after_user_action_code(
     let prefix = scm_init_prefix(username, password);
     let answer_int = if answer == "yes" { "1" } else { "0" };
     let action_id_q = os_quote(action_id);
-    let doc_q = os_quote(doc);
+    let doc_lit = os_quote(doc);
     format!(
         "{prefix}\
          set action=0 set target=\"\" set msg=\"\" set reload=0 \
-         set sc=obj.UserAction(0,\"%SourceMenu,{action_id_q}\",\"{doc_q}\",\"\",.action,.target,.msg,.reload) \
-         set sc=obj.AfterUserAction(0,\"%SourceMenu,{action_id_q}\",\"{doc_q}\",{answer_int},\"\") \
+         set sc=obj.UserAction(0,\"%SourceMenu,{action_id_q}\",\"{doc_lit}\",\"\",.action,.target,.msg,.reload) \
+         set sc=obj.AfterUserAction(0,\"%SourceMenu,{action_id_q}\",\"{doc_lit}\",{answer_int},\"\") \
          write $system.Status.GetErrorText(sc)"
     )
 }
@@ -676,11 +676,11 @@ pub(crate) fn after_user_action_code(
 /// the MenuItems ResultSet, writing one "name|enabled|displayName" line per item.
 fn menu_all_items_code(doc: &str, username: &str, password: &str) -> String {
     let prefix = scm_init_prefix(username, password);
-    let doc_q = os_quote(doc);
+    let doc_lit = os_quote(doc);
     format!(
         "{prefix}\
          set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") \
-         set sc=rset.Execute(\"%SourceMenu\",\"{doc_q}\",\"\") \
+         set sc=rset.Execute(\"%SourceMenu\",\"{doc_lit}\",\"\") \
          while rset.Next() {{ write rset.GetData(1)_\"|\"_rset.GetData(2),! }}"
     )
 }
@@ -696,11 +696,12 @@ mod tests {
     }
     #[test]
     fn test_os_quote_newline() {
-        assert_eq!(os_quote("a\nb"), "a$Char(10)b");
+        // Used to give the text `$Char(10)` inside the literal, not a line break (137).
+        assert_eq!(os_quote("a\nb"), "\"_\"a\"_$CHAR(10)_\"b\"_\"");
     }
     #[test]
     fn test_os_quote_cr() {
-        assert_eq!(os_quote("a\rb"), "a$Char(13)b");
+        assert_eq!(os_quote("a\rb"), "\"_\"a\"_$CHAR(13)_\"b\"_\"");
     }
     #[test]
     fn test_os_quote_plain() {
@@ -712,13 +713,17 @@ mod tests {
     }
     #[test]
     fn test_os_quote_mixed_quote_and_newline() {
-        // String with both double-quote and newline
-        assert_eq!(os_quote("say \"hi\"\nbye"), "say \"\"hi\"\"$Char(10)bye");
+        assert_eq!(
+            os_quote("say \"hi\"\nbye"),
+            "\"_\"say \"\"hi\"\"\"_$CHAR(10)_\"bye\"_\""
+        );
     }
     #[test]
     fn test_os_quote_cr_and_newline() {
-        // String with carriage return AND newline
-        assert_eq!(os_quote("line\r\nend"), "line$Char(13)$Char(10)end");
+        assert_eq!(
+            os_quote("line\r\nend"),
+            "\"_\"line\"_$CHAR(13,10)_\"end\"_\""
+        );
     }
 
     // ── parse_action_msg ─────────────────────────────────────────────────────
@@ -788,8 +793,8 @@ mod tests {
     fn test_user_action_code_escapes_newline_in_doc() {
         let code = user_action_code("CheckOut", "Doc\nwith\nnewlines.cls", "user", "pass");
         assert!(
-            code.contains("$Char(10)"),
-            "newline must become $Char(10): {}",
+            code.contains("$CHAR(10)") && !code.contains("Doc\nwith"),
+            "newline must become $CHAR(10) outside the literal: {}",
             code
         );
     }

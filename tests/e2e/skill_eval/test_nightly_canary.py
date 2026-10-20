@@ -30,6 +30,7 @@ def report(
     tool_count=81,
     task_outcomes=None,
     canary_tasks=CANARY_TASKS,
+    task_details=None,
 ) -> CanaryReport:
     if task_outcomes is None:
         task_outcomes = {task: True for task in canary_tasks}
@@ -41,6 +42,7 @@ def report(
         tool_count=tool_count,
         task_outcomes=task_outcomes,
         canary_tasks=canary_tasks,
+        task_details=task_details,
     )
 
 
@@ -259,3 +261,71 @@ def test_the_canary_tasks_all_exist_on_disk():
             f"{task_id} has no assertions, so passing it would mean nothing — the canary set is "
             "assertion-scored on purpose, so the nightly needs no scorer credential and no spend"
         )
+
+
+# ── a red night says why ─────────────────────────────────────────────────────
+
+
+def test_a_failed_task_reports_which_assertions_failed_and_what_the_session_did():
+    """Three nights in October 2026 said "assertions failed" for all three tasks and nothing else,
+    so nobody could tell a model outage from a broken tool without rerunning the night."""
+    from tests.e2e.result_writer import AssertionResult, TaskResult
+    from tests.e2e.skill_eval.nightly_canary import describe_result
+
+    result = TaskResult(
+        task_id="MCP-01",
+        scenario="mcp",
+        condition="baseline",
+        passed=False,
+        skill_loaded=False,
+        tool_calls=[],
+        assertion_results=[
+            AssertionResult(assertion_type="tool_called", description="calls iris_query", passed=False),
+            AssertionResult(assertion_type="output_contains", description="says the count", passed=True),
+        ],
+        llm_output_excerpt="",
+        duration_seconds=300.4,
+    )
+    text = describe_result(result)
+    assert "calls iris_query" in text
+    assert "says the count" not in text, "only the failed assertions"
+    assert "0 tool calls" in text and "300s" in text
+    assert "no output" in text
+
+    broken = report(
+        task_outcomes={**{t: True for t in CANARY_TASKS}, "MCP-01": False},
+        task_details={"MCP-01": text},
+    )
+    detail = next(c.detail for c in broken.checks if c.name == "MCP-01")
+    assert "calls iris_query" in detail, detail
+
+
+def test_a_task_model_missing_from_the_opencode_catalog_is_named_before_any_session():
+    """In October 2026 opencode's catalog dropped the Bedrock Sonnet 4.5 id all three canary tasks
+    named. Each session then died in a second with "Model not found" and the night read as three
+    failed tasks. A model the catalog does not list is a misconfiguration, found before spending."""
+    from tests.e2e.skill_eval.nightly_canary import models_missing_from_catalog
+
+    catalog = "amazon-bedrock/us.anthropic.claude-sonnet-4-6\nopenai/gpt-4.1\n"
+    tasks = {
+        "MCP-01": "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "SKILL-01": "amazon-bedrock/us.anthropic.claude-sonnet-4-6",
+        "FULL-01": None,
+    }
+    assert models_missing_from_catalog(tasks, catalog, default="openai/gpt-4.1") == [
+        ("MCP-01", "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    ]
+    assert models_missing_from_catalog(tasks, catalog, default="openai/gpt-5") == [
+        ("MCP-01", "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+        ("FULL-01", "openai/gpt-5"),
+    ]
+
+
+def test_every_canary_task_names_a_model():
+    import os
+
+    from tests.e2e.task_loader import TASKS_DIR, load_task
+
+    for task_id in CANARY_TASKS:
+        task = load_task(os.path.join(TASKS_DIR, f"{task_id}.yaml"))
+        assert task.model, f"{task_id} names no model, so the night runs on whatever the default is"

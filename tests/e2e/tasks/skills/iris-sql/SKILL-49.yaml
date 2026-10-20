@@ -1,0 +1,60 @@
+id: SKILL-49
+prompt: |
+  Bench49.Find.ByPrefix(pPrefix) in the BENCHMARK namespace must return the Name of every Bench49.Item row whose Name begins with the text pPrefix, taken literally, as a comma-separated string in Name order, asked through SQL. The prefix is whatever a user typed, so it can hold any character. It returns the string ERR if the query does not run. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-sql
+fixtures:
+  - name: Bench49.Item
+    content: |
+      Class Bench49.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      }
+  - name: Bench49.Find
+    content: |
+      Class Bench49.Find Extends %RegisteredObject
+      {
+
+      ClassMethod ByPrefix(pPrefix As %String) As %String
+      {
+          Quit ""
+      }
+
+      }
+check: |
+  try { do ##class(Bench49.Item).%KillExtent() for n="a_b","axb","a%b","a_c","ab" { set o=##class(Bench49.Item).%New() set o.Name=n do o.%Save() kill o } set ok=((##class(Bench49.Find).ByPrefix("a_")="a_b,a_c")&&(##class(Bench49.Find).ByPrefix("a%")="a%b")&&(##class(Bench49.Find).ByPrefix("a")="a%b,ab,axb,a_b,a_c")&&(##class(Bench49.Find).ByPrefix("zz")="")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench49.Item
+    content: |
+      Class Bench49.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      }
+  - name: Bench49.Find
+    content: |
+      Class Bench49.Find Extends %RegisteredObject
+      {
+
+      ClassMethod ByPrefix(pPrefix As %String) As %String
+      {
+          Set tStmt = ##class(%SQL.Statement).%New()
+          Set tSC = tStmt.%Prepare("SELECT Name FROM Bench49.Item WHERE Name %STARTSWITH ? ORDER BY Name")
+          If $$$ISERR(tSC) {
+              Quit "ERR"
+          }
+          Set tRs = tStmt.%Execute(pPrefix)
+          Set tOut = ""
+          While tRs.%Next() {
+              Set tOut = tOut _ $Select(tOut = "": "", 1: ",") _ tRs.%Get("Name")
+          }
+          Quit tOut
+      }
+
+      }
+tags: [sql, prefix, wildcards]

@@ -39,6 +39,10 @@ pub fn validate_subscripts(subscripts: &[String]) -> Result<(), serde_json::Valu
 // Global name normalization
 // ---------------------------------------------------------------------------
 
+/// Validates a global name before it is spliced into ObjectScript. Lives with the other name
+/// validators in `crate::objectscript`.
+pub use crate::objectscript::validate_global_name;
+
 /// Strip a leading `^` from a global name. `^MyApp` → `MyApp`.
 pub fn normalize_global_name(name: &str) -> String {
     name.strip_prefix('^').unwrap_or(name).to_string()
@@ -200,7 +204,16 @@ pub fn build_subtree_get_code(gref: &str, max_nodes: i64) -> String {
         format!(" Set baseRef = $Name({})", gref),
         " Set node = baseRef".to_string(),
         " Set count = 0".to_string(),
-        r#" For  Set node = $Query(@node)  Quit:node=""  Quit:($Extract(node,1,$Length(baseRef))'=baseRef)  Quit:(count>=maxNodes)  Quit:(($ZH-startTime)>5)  Write node_"|"_@node,$C(10)  Set count=count+1"#.to_string(),
+        // $Query starts after the base and never returns it, so a node that holds a value and
+        // children ($DATA = 11) lost its own value. Emit it first. A node with children only
+        // (D=10) has no value to emit.
+        r#" If $Data(@baseRef)#2 Write baseRef_"|"_@baseRef,$C(10) Set count=count+1"#.to_string(),
+        // A descendant starts with the reference up to its closing parenthesis, plus a comma:
+        // `^G("a")` -> `^G("a",`. Comparing against the whole reference (closing parenthesis
+        // included) never matched below a subscripted node (#146), and a prefix without the
+        // comma would let `^G(10)` through as a descendant of `^G(1)`.
+        r#" Set prefix = $Select($Extract(baseRef,$Length(baseRef))=")":$Extract(baseRef,1,$Length(baseRef)-1)_",",1:baseRef_"(")"#.to_string(),
+        r#" For  Set node = $Query(@node)  Quit:node=""  Quit:($Extract(node,1,$Length(prefix))'=prefix)  Quit:(count>=maxNodes)  Quit:(($ZH-startTime)>5)  Write node_"|"_@node,$C(10)  Set count=count+1"#.to_string(),
         // truncated=1 if we hit the node cap; time truncation approximated by same check
         // (a 5s timeout stops the loop before all nodes collected, so count<maxNodes but
         //  we cannot distinguish without extra state — accept that time-truncated results
@@ -322,6 +335,9 @@ pub async fn handle_iris_global(
     }
 
     let name = normalize_global_name(&params.global_name);
+    if let Err(e) = validate_global_name(&name) {
+        return e;
+    }
     let gref = build_global_ref(&name, &subs);
     let ns = params
         .namespace

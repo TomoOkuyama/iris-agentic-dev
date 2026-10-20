@@ -1,0 +1,37 @@
+id: SKILL-46
+prompt: |
+  Bench46.Ls.DropMarked(pItems) in the BENCHMARK namespace is a stub. pItems is a %ListOfDataTypes. Make it remove, in place, every item whose text contains DELETE, and leave the other items in their original order. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-list-patterns
+fixtures:
+  - name: Bench46.Ls
+    content: |
+      Class Bench46.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod DropMarked(pItems As %ListOfDataTypes)
+      {
+      }
+
+      }
+check: |
+  try { set l=##class(%Library.ListOfDataTypes).%New() for v="a","DELETE1","DELETE2","b","xDELETE","c" { do l.Insert(v) } do ##class(Bench46.Ls).DropMarked(l) set ok=((l.Count()=3)&&(l.GetAt(1)="a")&&(l.GetAt(2)="b")&&(l.GetAt(3)="c")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench46.Ls
+    content: |
+      Class Bench46.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod DropMarked(pItems As %ListOfDataTypes)
+      {
+          For i = pItems.Count():-1:1 {
+              If pItems.GetAt(i) [ "DELETE" {
+                  Do pItems.RemoveAt(i)
+              }
+          }
+      }
+
+      }
+tags: [lists, removal]

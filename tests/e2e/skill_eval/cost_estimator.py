@@ -230,6 +230,44 @@ def session_cost(events) -> float:
     return total
 
 
+TOKEN_KEYS = ("input", "output", "reasoning", "cache_read", "cache_write", "steps")
+
+
+def _int(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def session_tokens(events) -> dict:
+    """Tokens one opencode session used: the sum over its `step_finish` events, by kind.
+
+    Cost alone hides context bulk (135). A malformed token block counts as zero instead of raising,
+    for the reason `session_cost` ignores a non-numeric cost: the session already ran and was paid for.
+    """
+    total = dict.fromkeys(TOKEN_KEYS, 0)
+    for event in events:
+        if event.get("type") != "step_finish":
+            continue
+        total["steps"] += 1
+        tokens = (event.get("part") or {}).get("tokens")
+        if not isinstance(tokens, dict):
+            continue
+        cache = tokens.get("cache")
+        cache = cache if isinstance(cache, dict) else {}
+        total["input"] += _int(tokens.get("input"))
+        total["output"] += _int(tokens.get("output"))
+        total["reasoning"] += _int(tokens.get("reasoning"))
+        total["cache_read"] += _int(cache.get("read"))
+        total["cache_write"] += _int(cache.get("write"))
+    return total
+
+
+def add_tokens(a, b) -> dict:
+    """Two token blocks added, either of which may be missing or partial (a record from before 135)."""
+    a = a if isinstance(a, dict) else {}
+    b = b if isinstance(b, dict) else {}
+    return {key: _int(a.get(key)) + _int(b.get(key)) for key in TOKEN_KEYS}
+
+
 class BudgetExceeded(RuntimeError):
     """The estimate does not fit under the cap. No session runs."""
 

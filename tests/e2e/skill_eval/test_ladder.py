@@ -615,12 +615,16 @@ def test_the_pooled_task_set_is_every_holdout_skill_task_and_each_one_names_a_sk
     pair anyway."""
     from tests.e2e.skill_eval import ladder
 
+    from tests.e2e.skill_eval.evidence import load_read
+    from tests.e2e.skill_eval.split import default_split
+
     tasks = ladder.pooled_skill_tasks()
-    # 121's twelve over four skills, plus 130's SKILL-13 to SKILL-19, plus 132's holdout pair
-    # SKILL-24/25 for iris-ai-hub. SKILL-22/23 are train and stay out.
-    assert len(tasks) == 21
+    # The count moves as tasks are authored (135) and as tasks are read and move to train, so the
+    # invariants are what is pinned: every one names a skill, is on the holdout side and was not read.
+    assert tasks
     assert all(task.skill for task in tasks)
-    assert len({task.skill for task in tasks}) == 10
+    assert {task.id for task in tasks} <= set(default_split().holdout)
+    assert not {task.id for task in tasks} & set(load_read())
 
 
 # --- the dead-environment abort --------------------------------------------------------------------
@@ -1000,6 +1004,25 @@ def test_the_cli_web_port_defaults_to_none_so_the_env_then_52780_decide():
     assert ladder.parse_args(["--web-port", "52781"]).web_port == "52781"
 
 
+FAKE_STAMP = {
+    "binary": "/x/iris-agentic-dev",
+    "binary_sha256": "0" * 64,
+    "binary_version": "1.5.0",
+    "commit": "a" * 40,
+    "dirty": False,
+    "binary_stale": False,
+    "newer_source": [],
+}
+
+
+@pytest.fixture(autouse=True)
+def current_build(monkeypatch):
+    """A live run needs a real, current binary; these tests drive `_main` with the sessions stubbed."""
+    from tests.e2e.skill_eval import build_stamp
+
+    monkeypatch.setattr(build_stamp, "build_stamp", lambda binary, **kw: FAKE_STAMP)
+
+
 def _cli(monkeypatch, tmp_path, argv, tasks=AIHUB_TASKS):
     """`_main` with the corpus, the split and the sessions stubbed. Returns the exit code, what
     `run_ladder` was called with, and the records written."""
@@ -1102,3 +1125,141 @@ def test_a_train_report_publishes_nothing_and_says_train(monkeypatch):
     assert written["side"] == "train"
     assert written["published"] == []
     assert {record["side"] for record in written["runs"]} == {"train"}
+
+
+# ---- --arm: re-run a task on the arms that matter --------------------------------------------------
+#
+# `improve try` re-runs one task to see whether a change helped. The `bare` arm has passed 0 of 41
+# holdout tasks, so running it on every re-run is a third of the spend for an answer already known.
+
+
+class _Task:
+    def __init__(self, task_id):
+        self.id = task_id
+
+
+def _dry(monkeypatch, capsys, argv):
+    from tests.e2e.skill_eval import ladder
+
+    monkeypatch.setattr(ladder, "tools_ladder_tasks", lambda split=None, side="holdout": [_Task("CORPUS-40")])
+    code = ladder._main(["--dry-run", *argv])
+    return code, capsys.readouterr().out
+
+
+def test_arm_prices_only_the_arms_it_names(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--repeats", "3",
+                                           "--arm", "tools", "--arm", "tools+skills"])
+    assert code == 0
+    assert "2 arms (tools, tools+skills)" in out and "6 sessions" in out
+    assert "bare" not in out
+
+
+def test_without_arm_every_arm_still_runs(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--repeats", "3"])
+    assert code == 0 and "3 arms (bare, tools, tools+skills)" in out and "9 sessions" in out
+
+
+def test_an_unknown_arm_is_refused_and_the_valid_ones_are_named(monkeypatch, capsys):
+    code, out = _dry(monkeypatch, capsys, ["--task", "CORPUS-40", "--arm", "tolls"])
+    assert code == 2
+    assert "tolls" in out and "bare" in out and "tools+skills" in out
+
+
+def test_arm_is_refused_on_the_pooled_rung(monkeypatch, capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(["--dry-run", "--ladder", "skill", "--skill", "all", "--arm", "tools"])
+    assert code == 2
+    assert "pooled" in capsys.readouterr().out
+
+
+# --- the skills-only arm is opt-in on the tools ladder -------------------------------------------
+
+
+def test_the_tools_ladder_accepts_the_skills_only_arm_by_name(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "tools", "--arm", "skills-only", "--task", "CORPUS-01", "--dry-run"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "skills-only" in out and "1 arms" in out
+
+
+def test_an_unknown_arm_still_lists_what_the_rung_has(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(["--ladder", "tools", "--arm", "nonsense", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert "bare" in out and "skills-only" in out
+
+
+def test_the_skill_ladder_does_not_offer_the_skills_only_arm(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "skill", "--skill", "iris-sql", "--arm", "skills-only", "--dry-run"]
+    )
+    assert code == 2
+
+
+def test_the_tools_ladder_can_run_one_named_skill_against_any_task(capsys):
+    """`--arm tools+<skill>` builds that skill's preloaded rung, so a knowledge-gap task outside the
+    twelve skill tasks can still be run with and without the one skill that carries the fact."""
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        [
+            "--ladder",
+            "tools",
+            "--arm",
+            "tools",
+            "--arm",
+            "tools+objectscript-guardrails",
+            "--task",
+            "CORPUS-40",
+            "--dry-run",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "tools+objectscript-guardrails" in out and "2 arms" in out
+
+
+def test_a_skill_the_pack_does_not_ship_is_refused_on_the_tools_ladder(capsys):
+    from tests.e2e.skill_eval import ladder
+
+    code = ladder._main(
+        ["--ladder", "tools", "--arm", "tools+no-such-skill", "--task", "CORPUS-40", "--dry-run"]
+    )
+    assert code == 2
+    assert "no-such-skill" in capsys.readouterr().out
+
+
+def test_every_incremental_record_carries_the_build_stamp(monkeypatch, tmp_path):
+    code, _, records = _cli(monkeypatch, tmp_path, [])
+    assert code == 0
+    assert records and all(r["build"] == FAKE_STAMP for r in records)
+
+
+def test_a_stale_binary_stops_the_run_before_any_session(monkeypatch, tmp_path):
+    from tests.e2e.skill_eval import build_stamp
+
+    monkeypatch.setattr(
+        build_stamp,
+        "build_stamp",
+        lambda binary, **kw: {**FAKE_STAMP, "binary_stale": True, "newer_source": ["crates/a.rs"]},
+    )
+    code, seen, records = _cli(monkeypatch, tmp_path, [])
+    assert code == 2
+    assert "tasks" not in seen and records == []
+
+
+def test_a_relative_iad_binary_reaches_the_sessions_as_an_absolute_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("IAD_BINARY", "target/debug/iris-agentic-dev")
+    code, seen, _ = _cli(monkeypatch, tmp_path, [])
+    assert code == 0
+    assert os.path.isabs(seen["kwargs"]["binary"])
+    assert seen["kwargs"]["binary"].endswith("target/debug/iris-agentic-dev")

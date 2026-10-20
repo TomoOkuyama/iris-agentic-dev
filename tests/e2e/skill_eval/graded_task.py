@@ -36,8 +36,10 @@ Validation is two-stage, because the two halves can answer different amounts on 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 
@@ -59,6 +61,12 @@ CORPUS_DIR = os.path.join(BENCHMARK_DIR, "corpus")
 #: The skills ladder. One named skill per task, and the discriminator is a documented convention the
 #: model cannot infer from the prompt.
 SKILL_TASK_DIR = os.path.join(BENCHMARK_DIR, "skills")
+
+#: Skill tasks authored for 135, one subdirectory per skill: `skills/<skill>/<TASK>.yaml`. The directory
+#: name is the skill the task measures, and the loader refuses a task whose `skill:` disagrees.
+AUTHORED_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "tasks", "skills")
+)
 
 #: Everything the split has to cover. Not a glob over `BENCHMARK_DIR`: a directory added by accident
 #: should not silently join the corpus, and the split file itself lives there.
@@ -90,6 +98,9 @@ NONDETERMINISTIC = (
     "$J,",
 )
 
+#: A graded task file is `<PREFIX>-<number>.yaml`. `eval.yaml` beside them is the older judged corpus.
+TASK_FILE = re.compile(r"^[A-Z]+-\d+\.yaml$")
+
 PASS_WORD = "PASS"
 FAIL_WORD = "FAIL"
 
@@ -113,6 +124,15 @@ class Document:
 
 
 @dataclass(frozen=True)
+class QualityCheck:
+    """An extra check scored beside pass/fail (135): no collateral damage, other methods unchanged, a
+    clean compile, idiomatic status handling. Declared in the task file before the first session."""
+
+    name: str
+    check: str
+
+
+@dataclass(frozen=True)
 class GradedTask:
     id: str
     prompt: str
@@ -125,6 +145,27 @@ class GradedTask:
     # ObjectScript that removes state no class cleanup reaches: ConfigStore entries, Wallet secrets, a
     # %SYS web app (132). Run before validation, before the session and after the check.
     teardown: str | None = None
+    # Scored as a fraction beside the main check, never in place of it.
+    quality_checks: tuple[QualityCheck, ...] = field(default_factory=tuple)
+
+
+def task_fingerprint(task: GradedTask) -> str:
+    """A hash of everything about a task that decides its outcome. A run records it, so a task edited
+    between two runs cannot be pooled as if it were the same task (135)."""
+    body = json.dumps(
+        {
+            "prompt": task.prompt,
+            "check": task.check,
+            "fixtures": [[d.name, d.content] for d in task.fixtures],
+            "solution": [[d.name, d.content] for d in task.solution],
+            "quality": [[q.name, q.check] for q in task.quality_checks],
+            "namespace": task.namespace,
+            "skill": task.skill,
+            "teardown": task.teardown,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 def check_verdict(output: str) -> bool:
@@ -179,6 +220,7 @@ def load_task(path: str) -> GradedTask:
         skill=raw.get("skill"),
         tags=tuple(raw.get("tags") or ()),
         teardown=str(raw["teardown"]) if str(raw.get("teardown") or "").strip() else None,
+        quality_checks=_quality_checks(stem, raw.get("quality_checks")),
     )
     validate_shape(task)
     return task
@@ -207,17 +249,43 @@ def validate_shape(task: GradedTask) -> None:
             f"never set up (fixture: {', '.join(sorted(fixture_names))}). That is a second task in "
             "the same file, not the answer to this one"
         )
-    found = [token for token in NONDETERMINISTIC if token in task.check]
+    found = _nondeterministic_tokens(task.check)
     if found:
         raise CorpusInvalid(
             f"{task.id}: the check reads {', '.join(found)}, so it can answer differently on a "
             "second run. FR-003's word is deterministic"
         )
-    if PASS_WORD not in task.check or FAIL_WORD not in task.check:
+    if not _prints_both_words(task.check):
         raise CorpusInvalid(
             f"{task.id}: the check must be able to print both {PASS_WORD} and {FAIL_WORD}; a check "
             "with only one of them cannot discriminate"
         )
+    names: set[str] = set()
+    for quality in task.quality_checks:
+        if quality.name in names:
+            raise CorpusInvalid(
+                f"{task.id}: quality check {quality.name!r} is declared twice"
+            )
+        names.add(quality.name)
+        found = _nondeterministic_tokens(quality.check)
+        if found:
+            raise CorpusInvalid(
+                f"{task.id}: quality check {quality.name!r} reads {', '.join(found)}, so it can "
+                "answer differently on a second run"
+            )
+        if not _prints_both_words(quality.check):
+            raise CorpusInvalid(
+                f"{task.id}: quality check {quality.name!r} must be able to print both "
+                f"{PASS_WORD} and {FAIL_WORD}"
+            )
+
+
+def _nondeterministic_tokens(check: str) -> list[str]:
+    return [token for token in NONDETERMINISTIC if token in check]
+
+
+def _prints_both_words(check: str) -> bool:
+    return PASS_WORD in check and FAIL_WORD in check
 
 
 def load_dir(path: str) -> tuple[GradedTask, ...]:
@@ -237,23 +305,64 @@ def pilot_tasks() -> tuple[GradedTask, ...]:
     return load_dir(PILOT_DIR)
 
 
+def load_authored(root: str | None = None) -> tuple[GradedTask, ...]:
+    """Every task under `skills/<skill>/`, in id order. A missing root is empty.
+
+    The directory is the skill. A task whose `skill:` names another is refused, because a file in one
+    skill's directory that measures a different skill puts its sessions in the wrong verdict.
+    """
+    root = AUTHORED_DIR if root is None else root
+    if not os.path.isdir(root):
+        return ()
+    tasks: list[GradedTask] = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        if os.path.isfile(path):
+            if TASK_FILE.match(name):
+                raise CorpusInvalid(
+                    f"{path}: a task file loose in the authoring root. File it under "
+                    "skills/<skill>/, where the directory names the skill it measures"
+                )
+            continue
+        if not os.path.isdir(path) or name.startswith((".", "_")):
+            continue
+        # The older skill-eval fixtures (`eval.yaml`, `targeted/`) share this tree; only files named
+        # like a graded task id are tasks.
+        for filename in sorted(os.listdir(path)):
+            if not TASK_FILE.match(filename):
+                continue
+            task = load_task(os.path.join(path, filename))
+            if task.skill != name:
+                raise CorpusInvalid(
+                    f"{task.id} is filed under skills/{name}/ but names skill {task.skill!r}"
+                )
+            tasks.append(task)
+    return tuple(sorted(tasks, key=lambda task: task.id))
+
+
 def all_tasks() -> tuple[GradedTask, ...]:
-    """Every committed task across the three directories, in id order.
+    """Every committed task across the three directories and the authored skill tree, in id order.
 
     A duplicate ID raises. Two tasks under one ID pair against each other across arms, and the lift
     is then computed over a row that is two different tasks — a failure with no symptom.
     """
     tasks: list[GradedTask] = []
     seen: dict[str, str] = {}
+
+    def add(task: GradedTask, source: str) -> None:
+        if task.id in seen:
+            raise CorpusInvalid(
+                f"{task.id} is declared twice: {seen[task.id]} and {source}. One ID is one "
+                "task, or the arms pair rows that are not the same task"
+            )
+        seen[task.id] = source
+        tasks.append(task)
+
     for directory in TASK_DIRS:
         for task in load_dir(directory):
-            if task.id in seen:
-                raise CorpusInvalid(
-                    f"{task.id} is declared twice: {seen[task.id]} and {directory}. One ID is one "
-                    "task, or the arms pair rows that are not the same task"
-                )
-            seen[task.id] = directory
-            tasks.append(task)
+            add(task, directory)
+    for task in load_authored():
+        add(task, AUTHORED_DIR)
     return tuple(sorted(tasks, key=lambda task: task.id))
 
 
@@ -337,6 +446,26 @@ def apply_documents(documents, namespace: str = BENCHMARK_NAMESPACE) -> None:
 
 def run_check(task: GradedTask) -> bool:
     return check_verdict(_iad(["exec", task.check], task.namespace))
+
+
+def run_quality(task: GradedTask) -> dict[str, bool | None]:
+    """Each quality check's verdict, in declaration order. A check that did not answer is None: like a
+    killed session, it is a hole and not a fail."""
+    results: dict[str, bool | None] = {}
+    for quality in task.quality_checks:
+        try:
+            results[quality.name] = check_verdict(_iad(["exec", quality.check], task.namespace))
+        except CheckBroken:
+            results[quality.name] = None
+    return results
+
+
+def quality_score(results: dict) -> float | None:
+    """The fraction of answered quality checks that passed; None when none answered."""
+    answered = [value for value in results.values() if value is not None]
+    if not answered:
+        return None
+    return sum(1 for value in answered if value) / len(answered)
 
 
 def reset_documents(names, namespace: str = BENCHMARK_NAMESPACE) -> None:
@@ -429,6 +558,13 @@ def validate_live(task: GradedTask) -> None:
             "the reference is wrong or the check is, and until that is settled a 0.00 from this task "
             "says nothing about the agent"
         )
+    failed = [name for name, ok in run_quality(task).items() if ok is not True]
+    if failed:
+        raise CorpusInvalid(
+            f"{task.id}: the reference solution does not pass its own quality check(s) "
+            f"{', '.join(failed)}. The reference is the best answer, so a quality check it fails "
+            "scores every session wrong"
+        )
 
 
 def _documents(task_id: str, raw, label: str) -> tuple[Document, ...]:
@@ -446,3 +582,22 @@ def _documents(task_id: str, raw, label: str) -> tuple[Document, ...]:
             Document(name=str(entry["name"]), content=str(entry["content"]))
         )
     return tuple(documents)
+
+
+def _quality_checks(task_id: str, raw) -> tuple[QualityCheck, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise CorpusInvalid(f"{task_id}: quality_checks must be a list")
+    checks = []
+    for entry in raw:
+        if (
+            not isinstance(entry, dict)
+            or not str(entry.get("name") or "").strip()
+            or not str(entry.get("check") or "").strip()
+        ):
+            raise CorpusInvalid(
+                f"{task_id}: each quality check needs a name and a check"
+            )
+        checks.append(QualityCheck(name=str(entry["name"]), check=str(entry["check"])))
+    return tuple(checks)

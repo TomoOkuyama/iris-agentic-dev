@@ -93,8 +93,24 @@ jobs:
           name: vsix
           path: vscode-iris-agentic-dev/vscode-iris-agentic-dev-*.vsix
 
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+      - name: Generate the SBOM
+        run: |
+          cargo cyclonedx --format json --override-filename sbom
+          cp crates/iris-agentic-dev-bin/sbom.json "iris-agentic-dev-${{ github.ref_name }}.cdx.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: iris-agentic-dev-*.cdx.json
+
   release:
-    needs: [build, build-vsix, docker-publish]
+    needs: [build, build-vsix, docker-publish, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,7 +118,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-          pattern: "{iris-agentic-dev-*,vsix}"
+          pattern: "{iris-agentic-dev-*,vsix,sbom}"
       - name: Write release body
         run: |
           cat > release-body.md << 'EOF'
@@ -112,6 +128,12 @@ jobs:
 
           > The `.vsix` below is a fallback for air-gapped or pinned-version installs. Homebrew and manual binary install still work as before.
           EOF
+      - name: Write SHA256SUMS
+        run: |
+          sha256sum iris-agentic-dev-linux-x86_64 iris-agentic-dev-linux-aarch64 \
+            iris-agentic-dev-macos-arm64 iris-agentic-dev-macos-x86_64 \
+            iris-agentic-dev-windows-x86_64.exe > SHA256SUMS
+          cat SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -121,6 +143,8 @@ jobs:
             iris-agentic-dev-macos-x86_64
             iris-agentic-dev-windows-x86_64.exe
             vscode-iris-agentic-dev-*.vsix
+            iris-agentic-dev-*.cdx.json
+            SHA256SUMS
           generate_release_notes: true
           body_path: release-body.md
 

@@ -810,9 +810,43 @@ pub fn contains_global_kill(code: &str) -> bool {
                 after
             };
             let trimmed = after.trim_start_matches([' ', '\t']);
-            if trimmed.starts_with('^') {
+            if kill_args_name_a_global(trimmed) {
                 return true;
             }
+        }
+    }
+    false
+}
+
+/// Whether a `Kill` argument list names a global in any position. The list runs to the first
+/// unquoted space; arguments are split on unquoted, unbracketed commas. Only looking at the first
+/// argument let `Kill x,^Y` through (137).
+fn kill_args_name_a_global(args: &str) -> bool {
+    let (mut depth, mut in_str, mut at_arg_start) = (0i32, false, true);
+    for c in args.chars() {
+        if in_str {
+            if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_str = true,
+            // A space right after a comma is a syntax error in ObjectScript, but reading on costs
+            // nothing and a false positive beats a miss.
+            ' ' | '\t' if depth == 0 && at_arg_start => continue,
+            ' ' | '\t' if depth == 0 => return false,
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                at_arg_start = true;
+                continue;
+            }
+            '^' if at_arg_start && depth == 0 => return true,
+            _ => {}
+        }
+        if !c.is_whitespace() {
+            at_arg_start = false;
         }
     }
     false

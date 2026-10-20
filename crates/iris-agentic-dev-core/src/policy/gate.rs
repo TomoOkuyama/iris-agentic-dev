@@ -145,11 +145,12 @@ pub fn dispatch_gate(
         }
     }
 
-    // [3] System global blocklist (only fires when global_name param is present)
-    let global_name = params
-        .get("global_name")
-        .and_then(|v| v.as_str())
-        .or_else(|| params.get("globalName").and_then(|v| v.as_str()));
+    // [3] System global blocklist (only fires when a global name param is present).
+    // `global_preview` and `global_kill` call it `global`; reading only `global_name` let both
+    // through every check below (137).
+    let global_name = ["global_name", "globalName", "global"]
+        .iter()
+        .find_map(|k| params.get(*k).and_then(|v| v.as_str()));
 
     if let Some(gname) = global_name {
         let is_kill_op = params

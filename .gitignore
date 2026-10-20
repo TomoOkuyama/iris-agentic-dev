@@ -65,6 +65,7 @@ run_benchmark.py
 !CONTRIBUTING.md
 !AGENTS.md
 !CLAUDE.md
+!SECURITY.md
 /Bench/
 /EvalDemo/
 /EvalDemo.*
@@ -106,3 +107,6 @@ __pycache__/
 
 # Local-only files: the published-example name denylist (spec 123)
 /.iad-local/
+.improve/validated.json
+*.cdx.json
+sbom.json

@@ -1,0 +1,69 @@
+id: SKILL-51
+prompt: |
+  Bench51.Store.Put(pKey, pValue) in the BENCHMARK namespace must store pValue under pKey in the persistent class Bench51.Kv, through SQL. K is unique. When the key is new it inserts a row and returns 1, and when the key exists it changes that row's V and returns 0, leaving one row for the key. It returns -1 if a statement fails. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-sql
+fixtures:
+  - name: Bench51.Kv
+    content: |
+      Class Bench51.Kv Extends %Persistent
+      {
+
+      Property K As %String;
+
+      Property V As %String;
+
+      Index KIdx On K [ Unique ];
+
+      }
+  - name: Bench51.Store
+    content: |
+      Class Bench51.Store Extends %RegisteredObject
+      {
+
+      ClassMethod Put(pKey As %String, pValue As %String) As %Integer
+      {
+          Quit -1
+      }
+
+      }
+check: |
+  try { do ##class(Bench51.Kv).%KillExtent() set a=##class(Bench51.Store).Put("k1","v1") set b=##class(Bench51.Store).Put("k2","v2") set c=##class(Bench51.Store).Put("k1","v3") set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench51.Kv WHERE K = 'k1'") do rs.%Next() set n=rs.%GetData(1) set rs2=##class(%SQL.Statement).%ExecDirect(,"SELECT V FROM Bench51.Kv WHERE K = 'k1'") do rs2.%Next() set ok=((a=1)&&(b=1)&&(c=0)&&(n=1)&&(rs2.%GetData(1)="v3")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench51.Kv
+    content: |
+      Class Bench51.Kv Extends %Persistent
+      {
+
+      Property K As %String;
+
+      Property V As %String;
+
+      Index KIdx On K [ Unique ];
+
+      }
+  - name: Bench51.Store
+    content: |
+      Class Bench51.Store Extends %RegisteredObject
+      {
+
+      ClassMethod Put(pKey As %String, pValue As %String) As %Integer
+      {
+          &sql(UPDATE Bench51.Kv SET V = :pValue WHERE K = :pKey)
+          If SQLCODE < 0 {
+              Quit -1
+          }
+          If %ROWCOUNT > 0 {
+              Quit 0
+          }
+          &sql(INSERT INTO Bench51.Kv (K, V) VALUES (:pKey, :pValue))
+          If SQLCODE < 0 {
+              Quit -1
+          }
+          Quit 1
+      }
+
+      }
+tags: [sql, upsert]

@@ -1,0 +1,46 @@
+id: SKILL-39
+prompt: |
+  Bench13.Scan.FirstOver(pLimit, pMax) in the BENCHMARK namespace must return the first whole number
+  from 1 to pMax whose square is greater than pLimit, and 0 when there is none. Callers get an error
+  from it. Fix it. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-tdd
+fixtures:
+  - name: Bench13.Scan
+    content: |
+      Class Bench13.Scan Extends %RegisteredObject
+      {
+
+      ClassMethod FirstOver(pLimit As %Integer, pMax As %Integer) As %Integer
+      {
+          For i = 1:1:pMax {
+              If (i * i) > pLimit {
+                  Quit i
+              }
+          }
+          Quit 0
+      }
+
+      }
+check: |
+  try { set ok=((##class(Bench13.Scan).FirstOver(50,20)=8)&&(##class(Bench13.Scan).FirstOver(0,5)=1)&&(##class(Bench13.Scan).FirstOver(1000,10)=0)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench13.Scan
+    content: |
+      Class Bench13.Scan Extends %RegisteredObject
+      {
+
+      ClassMethod FirstOver(pLimit As %Integer, pMax As %Integer) As %Integer
+      {
+          For i = 1:1:pMax {
+              If (i * i) > pLimit {
+                  Return i
+              }
+          }
+          Quit 0
+      }
+
+      }
+tags: [runtime-quit-in-loop]

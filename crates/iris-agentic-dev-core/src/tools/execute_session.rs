@@ -59,6 +59,7 @@ pub fn build_session_preamble(token: Option<&str>) -> Result<String> {
         Some(t) => {
             let tok = SessionToken::new(t)?;
             Ok(format!(
+                // splice-ok: token passed SessionToken::new, which accepts only its own format
                 "Set zToken = \"{token}\"\n\
                  Try {{\n\
                      Set %ctx = ##class(%DynamicObject).%FromJSON($system.Encryption.Base64Decode(zToken))\n\

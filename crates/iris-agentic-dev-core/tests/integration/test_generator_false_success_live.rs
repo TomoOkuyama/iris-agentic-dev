@@ -41,10 +41,11 @@ fn parse_json(r: rmcp::model::CallToolResult) -> serde_json::Value {
 
 // ── global_preview: a failed preview must not mint a confirm_token ────────────
 
-/// `global_preview` never validates the global name, so a name with a space compiles fine and then
-/// fails at runtime inside `$Order(@gRef@(key))`. That is a real IRIS failure delivered the way the
-/// bug required: `Ok(out)` holding `ERROR: <SYNTAX>...`. Before the fix this returned an empty
-/// preview *and* a valid token, which `global_kill` would then accept for a global nobody had read.
+/// A name with a space used to compile and then fail at runtime inside `$Order(@gRef@(key))`, and
+/// before the generator-output fix that returned an empty preview *and* a valid token, which
+/// `global_kill` would then accept for a global nobody had read. Since 137 the name is refused
+/// before any IRIS call. What this test holds is the property both fixes protect: no token for a
+/// global that was not read.
 #[tokio::test]
 #[ignore]
 async fn live_failed_preview_mints_no_confirm_token() {
@@ -81,8 +82,8 @@ async fn live_failed_preview_mints_no_confirm_token() {
     );
     assert_eq!(
         v["error_code"].as_str(),
-        Some("IRIS_EXECUTE_ERROR"),
-        "the refusal must come from the generator-output check, not from some earlier bail: {v}"
+        Some("INVALID_GLOBAL_NAME"),
+        "the name is refused before any IRIS call: {v}"
     );
     assert!(
         v["error"].as_str().unwrap_or("").contains("IAD Bad Name"),
@@ -292,9 +293,10 @@ fn make_tools() -> Option<iris_agentic_dev_core::tools::IrisTools> {
     Some(iris_agentic_dev_core::tools::IrisTools::new(Some(conn)).expect("IrisTools::new"))
 }
 
-/// A name holding a double quote produces `Kill ^SKILLS("a\"b")`, which the terminal rejects with
-/// `<SYNTAX>` — and still exits 0, so `iris.execute` returns `Ok`. Before the fix `skill_forget`
-/// only checked `is_ok()` and answered `success: true` for a skill it had not touched.
+/// A name holding a double quote used to produce `Kill ^SKILLS("a\"b")`, which the terminal rejects
+/// with `<SYNTAX>` and still exits 0, so `skill_forget` answered `success: true` for a skill it had
+/// not touched. Since 137 the quote is doubled, so the Kill runs on `^SKILLS("iad""probe")`: a
+/// stored skill with that name is really removed, and the answer says so only after it is gone.
 #[tokio::test]
 #[ignore]
 async fn live_skill_forget_refuses_an_unconfirmed_kill() {
@@ -305,20 +307,28 @@ async fn live_skill_forget_refuses_an_unconfirmed_kill() {
             return;
         }
     };
+    let (conn, client) = make_conn().expect("connection");
+    conn.execute_via_generator(
+        r#"Set ^SKILLS("iad""probe")="probe|body|0|now""#,
+        "USER",
+        &client,
+    )
+    .await
+    .expect("seeding ^SKILLS failed");
     let result = tools
         .call_for_test("skill_forget", serde_json::json!({"name": "iad\"probe"}))
         .await
         .expect("call_for_test");
     let v = parse_json(result);
+    let check = conn
+        .execute_via_generator(r#"Write $Data(^SKILLS("iad""probe"))"#, "USER", &client)
+        .await
+        .expect("checking ^SKILLS failed");
+    assert_eq!(v["success"].as_bool(), Some(true), "got {v}");
     assert_eq!(
-        v["success"].as_bool(),
-        Some(false),
-        "a Kill IRIS refused must not be reported as a removal: {v}"
-    );
-    assert_eq!(
-        v["error_code"].as_str(),
-        Some("IRIS_EXECUTE_ERROR"),
-        "got {v}"
+        check.trim(),
+        "0",
+        "success must mean the skill with the quote in its name is gone: {check:?}"
     );
 }
 

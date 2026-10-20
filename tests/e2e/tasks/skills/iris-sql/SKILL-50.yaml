@@ -1,0 +1,58 @@
+id: SKILL-50
+prompt: |
+  Bench50.Bulk.Deactivate(pDept) in the BENCHMARK namespace must set Active to 0 for every Bench50.Account row in the department pDept that is still active, through SQL, and return how many rows it changed. It returns -1 if the statement fails. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-sql
+fixtures:
+  - name: Bench50.Account
+    content: |
+      Class Bench50.Account Extends %Persistent
+      {
+
+      Property Dept As %String;
+
+      Property Active As %Boolean;
+
+      }
+  - name: Bench50.Bulk
+    content: |
+      Class Bench50.Bulk Extends %RegisteredObject
+      {
+
+      ClassMethod Deactivate(pDept As %String) As %Integer
+      {
+          Quit -1
+      }
+
+      }
+check: |
+  try { do ##class(Bench50.Account).%KillExtent() for r="x|1","x|1","x|1","x|0","y|1" { set o=##class(Bench50.Account).%New() set o.Dept=$piece(r,"|",1) set o.Active=$piece(r,"|",2) do o.%Save() kill o } set n1=##class(Bench50.Bulk).Deactivate("x") set n2=##class(Bench50.Bulk).Deactivate("x") set n3=##class(Bench50.Bulk).Deactivate("none") set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench50.Account WHERE Active = 1") do rs.%Next() set ok=((n1=3)&&(n2=0)&&(n3=0)&&(rs.%GetData(1)=1)) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench50.Account
+    content: |
+      Class Bench50.Account Extends %Persistent
+      {
+
+      Property Dept As %String;
+
+      Property Active As %Boolean;
+
+      }
+  - name: Bench50.Bulk
+    content: |
+      Class Bench50.Bulk Extends %RegisteredObject
+      {
+
+      ClassMethod Deactivate(pDept As %String) As %Integer
+      {
+          &sql(UPDATE Bench50.Account SET Active = 0 WHERE Dept = :pDept AND Active = 1)
+          If SQLCODE < 0 {
+              Quit -1
+          }
+          Quit %ROWCOUNT
+      }
+
+      }
+tags: [sql, rowcount]

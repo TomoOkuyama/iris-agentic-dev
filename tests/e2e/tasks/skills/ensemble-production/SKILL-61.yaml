@@ -1,0 +1,185 @@
+id: SKILL-61
+prompt: |
+  The production Bench61.Prod in the BENCHMARK namespace has an adapterless service Svc that passes a
+  Ens.StringRequest to the operation Echo, and Echo answers with an Ens.StringResponse. Bench61.Probe.Ping(pText)
+  must push pText through Svc inside the production and return the response's StringValue, so a test
+  can exercise the whole path without the Management Portal. The production is already running when
+  Ping is called. Ping returns "" today. Implement it, and leave the class compiled on the server. Do
+  not change the production, the service or the operation, and leave no production running when you
+  finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench61.Echo
+    content: |
+      Class Bench61.Echo Extends Ens.BusinessOperation
+      {
+
+      Parameter INVOCATION = "Queue";
+
+      Method OnMessage(pReq As Ens.StringRequest, Output pResp As Ens.StringResponse) As %Status
+      {
+          Set pResp = ##class(Ens.StringResponse).%New()
+          Set pResp.StringValue = "echo:" _ pReq.StringValue
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench61.Svc
+    content: |
+      Class Bench61.Svc Extends Ens.BusinessService
+      {
+
+      Method OnProcessInput(pInput As Ens.StringRequest, Output pOutput As Ens.StringResponse) As %Status
+      {
+          Quit ..SendRequestSync("Echo", pInput, .pOutput)
+      }
+
+      }
+  - name: Bench61.Prod
+    content: |
+      Class Bench61.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench61.Prod">
+      <Item Name="Svc" ClassName="Bench61.Svc" PoolSize="0" Enabled="true"/>
+      <Item Name="Echo" ClassName="Bench61.Echo" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+  - name: Bench61.Probe
+    content: |
+      Class Bench61.Probe Extends %RegisteredObject
+      {
+
+      ClassMethod Ping(pText As %String) As %String
+      {
+          Quit ""
+      }
+
+      }
+  - name: Bench61.Hook
+    content: |
+      Class Bench61.Hook Extends %RegisteredObject
+      {
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench61.Out
+      }
+
+      /// Runs Ping in its own process, so a Ping that halts its process cannot take the caller with it.
+      ClassMethod Run(pText As %String)
+      {
+          Set ^Bench61.Out(pText) = ##class(Bench61.Probe).Ping(pText)
+      }
+
+      ClassMethod Try(pText As %String) As %String
+      {
+          Job ..Run(pText)
+          For i = 1:1:50 {
+              If $Data(^Bench61.Out(pText)) { Quit }
+              Hang 0.2
+          }
+          Quit $Get(^Bench61.Out(pText))
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) set s1=##class(Ens.Director).StartProduction("Bench61.Prod") do ##class(Bench61.Hook).Reset() set a=##class(Bench61.Hook).Try("one") set b=##class(Bench61.Hook).Try("two") set s2=##class(Ens.Director).StopProduction(10,0) set ok=$system.Status.IsOK(s1)&&$system.Status.IsOK(s2)&&(a="echo:one")&&(b="echo:two") } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench61.Echo
+    content: |
+      Class Bench61.Echo Extends Ens.BusinessOperation
+      {
+
+      Parameter INVOCATION = "Queue";
+
+      Method OnMessage(pReq As Ens.StringRequest, Output pResp As Ens.StringResponse) As %Status
+      {
+          Set pResp = ##class(Ens.StringResponse).%New()
+          Set pResp.StringValue = "echo:" _ pReq.StringValue
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench61.Svc
+    content: |
+      Class Bench61.Svc Extends Ens.BusinessService
+      {
+
+      Method OnProcessInput(pInput As Ens.StringRequest, Output pOutput As Ens.StringResponse) As %Status
+      {
+          Quit ..SendRequestSync("Echo", pInput, .pOutput)
+      }
+
+      }
+  - name: Bench61.Prod
+    content: |
+      Class Bench61.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench61.Prod">
+      <Item Name="Svc" ClassName="Bench61.Svc" PoolSize="0" Enabled="true"/>
+      <Item Name="Echo" ClassName="Bench61.Echo" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+  - name: Bench61.Probe
+    content: |
+      Class Bench61.Probe Extends %RegisteredObject
+      {
+
+      ClassMethod Ping(pText As %String) As %String
+      {
+          Set tSC = ##class(Ens.Director).CreateBusinessService("Svc", .tSvc)
+          If $$$ISERR(tSC) { Quit "" }
+          Set tReq = ##class(Ens.StringRequest).%New()
+          Set tReq.StringValue = pText
+          Set tSC = tSvc.ProcessInput(tReq, .tResp)
+          If $$$ISERR(tSC) || '$IsObject($Get(tResp)) { Quit "" }
+          Quit tResp.StringValue
+      }
+
+      }
+  - name: Bench61.Hook
+    content: |
+      Class Bench61.Hook Extends %RegisteredObject
+      {
+
+      ClassMethod Reset()
+      {
+          Kill ^Bench61.Out
+      }
+
+      /// Runs Ping in its own process, so a Ping that halts its process cannot take the caller with it.
+      ClassMethod Run(pText As %String)
+      {
+          Set ^Bench61.Out(pText) = ##class(Bench61.Probe).Ping(pText)
+      }
+
+      ClassMethod Try(pText As %String) As %String
+      {
+          Job ..Run(pText)
+          For i = 1:1:50 {
+              If $Data(^Bench61.Out(pText)) { Quit }
+              Hang 0.2
+          }
+          Quit $Get(^Bench61.Out(pText))
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) } catch { }
+tags:
+  - production
+  - testing
+  - service

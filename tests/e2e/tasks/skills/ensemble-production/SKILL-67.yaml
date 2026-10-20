@@ -1,0 +1,350 @@
+id: SKILL-67
+prompt: |
+  In the BENCHMARK namespace, the production Bench67.Prod decides grievance cases. The code-based
+  business process Bench67.IntakeBP calls Bench67.Rules.Evaluate for each case's outcome and reasons,
+  asks the operation Agent for a note (a slow Agent must never stop a case from being decided), and
+  records the outcome, the reasons and a queue on the case with Bench67.Grievance.Record: invalid goes to
+  "handler", routine to "auto", anything else to "review".
+
+  The analysts want to open this work in the Management Portal: the process in the BPL Editor and the
+  decision in the Rule Editor. Rewrite it so they can. Bench67.IntakeBP must stay the class the
+  production runs, and the decision must live in a rule class named Bench67.IntakeRule (today an empty
+  placeholder). Bench67.Fn is free for helper methods. Keep the
+  behaviour exactly: the same outcome, reasons and queue for every case. Do not change the production,
+  the service, Agent, Bench67.Grievance, Bench67.Member or Bench67.Hook. Leave everything compiled on the
+  server and no production running when you finish.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: ensemble-production
+fixtures:
+  - name: Bench67.Member
+    content: |
+      Class Bench67.Member Extends %Persistent
+      {
+
+      Property MemberId As %String;
+
+      Index MemberIdIdx On MemberId [ Unique ];
+
+      }
+  - name: Bench67.Grievance
+    content: |
+      Class Bench67.Grievance Extends %Persistent
+      {
+
+      Property CaseId As %Integer [ Required ];
+
+      Property MemberId As %String;
+
+      Property Type As %String;
+
+      Property Outcome As %String;
+
+      Property Reasons As %String(MAXLEN = 200);
+
+      Property Queue As %String;
+
+      Index CaseIdIdx On CaseId [ Unique ];
+
+      ClassMethod MemberOf(pCaseId As %Integer) As %String
+      {
+          &sql(SELECT MemberId INTO :tMember FROM Bench67.Grievance WHERE CaseId = :pCaseId)
+          Quit $Select(SQLCODE = 0: tMember, 1: "")
+      }
+
+      ClassMethod TypeOf(pCaseId As %Integer) As %String
+      {
+          &sql(SELECT Type INTO :tType FROM Bench67.Grievance WHERE CaseId = :pCaseId)
+          Quit $Select(SQLCODE = 0: tType, 1: "")
+      }
+
+      ClassMethod Record(pCaseId As %Integer, pOutcome As %String, pReasons As %String, pQueue As %String) As %Status
+      {
+          &sql(UPDATE Bench67.Grievance SET Outcome = :pOutcome, Reasons = :pReasons, Queue = :pQueue WHERE CaseId = :pCaseId)
+          If SQLCODE < 0 { Quit $$$ERROR($$$GeneralError, "Record failed: SQLCODE " _ SQLCODE) }
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench67.IntakeRequest
+    content: |
+      Class Bench67.IntakeRequest Extends Ens.Request
+      {
+
+      Property CaseId As %Integer;
+
+      }
+  - name: Bench67.Agent
+    content: |
+      Class Bench67.Agent Extends Ens.BusinessOperation
+      {
+
+      Method OnMessage(pReq As Ens.StringRequest, Output pResp As Ens.StringResponse) As %Status
+      {
+          If pReq.StringValue = 5 { Hang 6 }
+          Set pResp = ##class(Ens.StringResponse).%New()
+          Set pResp.StringValue = "noted " _ pReq.StringValue
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench67.Svc
+    content: |
+      Class Bench67.Svc Extends Ens.BusinessService
+      {
+
+      Method OnProcessInput(pInput As Bench67.IntakeRequest, Output pOutput As %RegisteredObject) As %Status
+      {
+          Quit ..SendRequestSync("IntakeBP", pInput, .pOutput, 30)
+      }
+
+      }
+  - name: Bench67.Rules
+    content: |
+      Class Bench67.Rules Extends %RegisteredObject
+      {
+
+      ClassMethod Evaluate(pCaseId As %Integer, Output pReasons As %String) As %String
+      {
+          Set pReasons = ""
+          Set tMember = ##class(Bench67.Grievance).MemberOf(pCaseId)
+          Set tType = ##class(Bench67.Grievance).TypeOf(pCaseId)
+          &sql(SELECT COUNT(*) INTO :tMembers FROM Bench67.Member WHERE MemberId = :tMember)
+          If tMembers = 0 {
+              Set pReasons = "no member;"
+              Quit "invalid"
+          }
+          &sql(SELECT COUNT(*) INTO :tEarlier FROM Bench67.Grievance WHERE MemberId = :tMember AND Type = :tType AND CaseId < :pCaseId)
+          If tEarlier > 0 {
+              Set pReasons = "duplicate;"
+              Quit "invalid"
+          }
+          If tType = "id_card" {
+              Set pReasons = "card;"
+              Quit "routine"
+          }
+          Quit "further_review"
+      }
+
+      }
+  - name: Bench67.IntakeBP
+    content: |
+      Class Bench67.IntakeBP Extends Ens.BusinessProcess [ ClassType = persistent ]
+      {
+
+      Method OnRequest(pRequest As %Library.Persistent, Output pResponse As %Library.Persistent) As %Status
+      {
+          Set tId = pRequest.CaseId
+          Set tOutcome = ##class(Bench67.Rules).Evaluate(tId, .tReasons)
+          // The note is nice to have: a timeout or an error from Agent is ignored.
+          Set tSC = ..SendRequestSync("Agent", ##class(Ens.StringRequest).%New(tId), .tNote, 3)
+          Set tQueue = $Case(tOutcome, "invalid": "handler", "routine": "auto", : "review")
+          Quit ##class(Bench67.Grievance).Record(tId, tOutcome, tReasons, tQueue)
+      }
+
+      Method OnResponse(request As %Library.Persistent, ByRef response As %Library.Persistent, callrequest As %Library.Persistent, callresponse As %Library.Persistent, pCompletionKey As %String) As %Status
+      {
+          Quit $$$OK
+      }
+
+      }
+  - name: Bench67.Fn
+    content: |
+      /// Free for helper methods.
+      Class Bench67.Fn Extends %RegisteredObject
+      {
+
+      }
+  - name: Bench67.IntakeRule
+    content: |
+      /// Placeholder for the decision.
+      Class Bench67.IntakeRule Extends %RegisteredObject
+      {
+
+      }
+  - name: Bench67.Prod
+    content: |
+      Class Bench67.Prod Extends Ens.Production
+      {
+
+      XData ProductionDefinition
+      {
+      <Production Name="Bench67.Prod">
+      <Item Name="Svc" ClassName="Bench67.Svc" PoolSize="0" Enabled="true"/>
+      <Item Name="IntakeBP" ClassName="Bench67.IntakeBP" PoolSize="1" Enabled="true"/>
+      <Item Name="Agent" ClassName="Bench67.Agent" PoolSize="1" Enabled="true"/>
+      </Production>
+      }
+
+      }
+  - name: Bench67.Hook
+    content: |
+      Class Bench67.Hook Extends %RegisteredObject
+      {
+
+      /// Members M1 and M2; five cases, one per outcome path, and case 5 makes Agent slower than
+      /// the process waits.
+      ClassMethod Seed()
+      {
+          Kill ^Bench67.Done
+          &sql(DELETE FROM Bench67.Grievance)
+          &sql(DELETE FROM Bench67.Member)
+          For tId = "M1", "M2" {
+              Set tMember = ##class(Bench67.Member).%New()
+              Set tMember.MemberId = tId
+              Do tMember.%Save()
+          }
+          For i = 1:1:5 {
+              Set tCase = ##class(Bench67.Grievance).%New()
+              Set tCase.CaseId = i
+              Set tCase.MemberId = $Piece("M1,M9,M1,M2,M2", ",", i)
+              Set tCase.Type = $Piece("id_card,billing,id_card,billing,id_card", ",", i)
+              Do tCase.%Save()
+          }
+      }
+
+      /// Runs in its own process, so the device the production moves is not the caller's.
+      ClassMethod Run(pCaseId As %Integer)
+      {
+          Set tSC = ##class(Ens.Director).CreateBusinessService("Svc", .tSvc)
+          If $System.Status.IsOK(tSC) {
+              Set tReq = ##class(Bench67.IntakeRequest).%New()
+              Set tReq.CaseId = pCaseId
+              Set tSC = tSvc.ProcessInput(tReq, .tOut)
+          }
+          Set ^Bench67.Done(pCaseId) = tSC
+      }
+
+      ClassMethod Try(pCaseId As %Integer) As %String
+      {
+          Job ..Run(pCaseId)
+          For i = 1:1:75 {
+              If $Data(^Bench67.Done(pCaseId)) { Quit }
+              Hang 0.2
+          }
+          &sql(SELECT Outcome, Reasons, Queue INTO :tOutcome, :tReasons, :tQueue FROM Bench67.Grievance WHERE CaseId = :pCaseId)
+          Quit tOutcome _ "|" _ tReasons _ "|" _ tQueue
+      }
+
+      /// The editors open a BPL class and a rule class; nothing else.
+      ClassMethod Opens() As %Boolean
+      {
+          If '##class(%Dictionary.CompiledClass).%ExistsId("Bench67.IntakeBP") { Quit 0 }
+          If '$ClassMethod("Bench67.IntakeBP", "%Extends", "Ens.BusinessProcessBPL") { Quit 0 }
+          If '##class(%Dictionary.CompiledXData).%ExistsId("Bench67.IntakeBP||BPL") { Quit 0 }
+          If '##class(%Dictionary.CompiledClass).%ExistsId("Bench67.IntakeRule") { Quit 0 }
+          If '$ClassMethod("Bench67.IntakeRule", "%Extends", "Ens.Rule.Definition") { Quit 0 }
+          Quit $System.Status.IsOK(##class(Ens.Rule.Model.ruleDefinition).LoadFromClass("Bench67.IntakeRule", .tDef, 0, 0))
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Ens.Director).StopProduction(10,1) set st=##class(Bench67.Hook).Opens() do ##class(Bench67.Hook).Seed() set s1=##class(Ens.Director).StartProduction("Bench67.Prod") set r="" for i=1:1:5 { set r=r_##class(Bench67.Hook).Try(i)_"~" } set s2=##class(Ens.Director).StopProduction(10,0) set ok=st&&$system.Status.IsOK(s1)&&(r="routine|card;|auto~invalid|no member;|handler~invalid|duplicate;|handler~further_review||review~routine|card;|auto~") } catch { set ok=0 } try { do ##class(Ens.Director).StopProduction(10,1) } catch { } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench67.Fn
+    content: |
+      Class Bench67.Fn Extends Ens.Rule.FunctionSet
+      {
+
+      /// Read-only: the Rule Editor's Test button runs this for real.
+      ClassMethod MemberExists(pMemberId As %String) As %Boolean [ Final ]
+      {
+          &sql(SELECT COUNT(*) INTO :tCount FROM Bench67.Member WHERE MemberId = :pMemberId)
+          Quit (SQLCODE = 0) && (tCount > 0)
+      }
+
+      /// Read-only: an earlier case for the same member and type.
+      ClassMethod IsDuplicate(pCaseId As %Integer, pMemberId As %String, pType As %String) As %Boolean [ Final ]
+      {
+          &sql(SELECT COUNT(*) INTO :tCount FROM Bench67.Grievance WHERE MemberId = :pMemberId AND Type = :pType AND CaseId < :pCaseId)
+          Quit (SQLCODE = 0) && (tCount > 0)
+      }
+
+      }
+  - name: Bench67.IntakeBP
+    content: |
+      Class Bench67.IntakeBP Extends Ens.BusinessProcessBPL [ ClassType = persistent ]
+      {
+
+      XData BPL [ XMLNamespace = "http://www.intersystems.com/bpl" ]
+      {
+      <process language='objectscript' request='Bench67.IntakeRequest' response='Ens.Response'>
+      <context>
+      <property name='CaseId' type='%Integer' instantiate='0'/>
+      <property name='MemberId' type='%String' instantiate='0'/>
+      <property name='Type' type='%String' instantiate='0'/>
+      <property name='Outcome' type='%String' instantiate='0'/>
+      <property name='Reasons' type='%String' instantiate='0'>
+      <parameters><parameter name='MAXLEN' value='200'/></parameters>
+      </property>
+      <property name='Why' type='%String' instantiate='0'>
+      <parameters><parameter name='MAXLEN' value='500'/></parameters>
+      </property>
+      <property name='Queue' type='%String' instantiate='0'/>
+      </context>
+      <sequence>
+      <assign property='context.CaseId' value='request.CaseId' action='set'/>
+      <assign property='context.MemberId' value='##class(Bench67.Grievance).MemberOf(request.CaseId)' action='set'/>
+      <assign property='context.Type' value='##class(Bench67.Grievance).TypeOf(request.CaseId)' action='set'/>
+      <rule name='decide' rule='Bench67.IntakeRule' resultLocation='context.Outcome' reasonLocation='context.Why'/>
+      <scope>
+      <call name='note' target='Agent' async='0' timeout='3'>
+      <request type='Ens.StringRequest'><assign property='callrequest.StringValue' value='context.CaseId' action='set'/></request>
+      <response type='Ens.StringResponse'/>
+      </call>
+      <faulthandlers><catchall/></faulthandlers>
+      </scope>
+      <switch>
+      <case condition='context.Outcome="invalid"'><assign property='context.Queue' value='"handler"' action='set'/></case>
+      <case condition='context.Outcome="routine"'><assign property='context.Queue' value='"auto"' action='set'/></case>
+      <default><assign property='context.Queue' value='"review"' action='set'/></default>
+      </switch>
+      <code><![CDATA[ Set status = ##class(Bench67.Grievance).Record(context.CaseId, context.Outcome, context.Reasons, context.Queue)]]></code>
+      </sequence>
+      </process>
+      }
+
+      }
+  - name: Bench67.IntakeRule
+    content: |
+      Class Bench67.IntakeRule Extends Ens.Rule.Definition
+      {
+
+      Parameter RuleAssistClass = "Ens.Rule.GeneralBusinessRuleAssist";
+
+      XData RuleDefinition [ XMLNamespace = "http://www.intersystems.com/rule" ]
+      {
+      <ruleDefinition alias="" context="Bench67.IntakeBP.Context" production="">
+      <ruleSet name="" effectiveBegin="" effectiveEnd="">
+      <rule name="noMember">
+      <when condition="MemberExists(MemberId)=0">
+      <assign property="Reasons" value="Reasons_&quot;no member;&quot;"></assign>
+      <return>&quot;invalid&quot;</return>
+      </when>
+      </rule>
+      <rule name="duplicate">
+      <when condition="IsDuplicate(CaseId,MemberId,Type)">
+      <assign property="Reasons" value="Reasons_&quot;duplicate;&quot;"></assign>
+      <return>&quot;invalid&quot;</return>
+      </when>
+      </rule>
+      <rule name="card">
+      <when condition="Type=&quot;id_card&quot;">
+      <assign property="Reasons" value="Reasons_&quot;card;&quot;"></assign>
+      <return>&quot;routine&quot;</return>
+      </when>
+      </rule>
+      <return>&quot;further_review&quot;</return>
+      </ruleSet>
+      </ruleDefinition>
+      }
+
+      }
+teardown: |
+  try { do ##class(Ens.Director).StopProduction(10,1) } catch { }
+tags:
+  - bpl
+  - rule
+  - editor
+  - conversion

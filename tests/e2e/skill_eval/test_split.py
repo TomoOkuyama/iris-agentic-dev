@@ -196,22 +196,25 @@ def test_every_skill_ladder_task_is_on_the_holdout_side():
     assert skill_ids, (
         "no skill tasks yet — this test is vacuous until Goal 2 writes them"
     )
+    from tests.e2e.skill_eval.evidence import load_read
+
     assert_holdout_only(
-        split, [task_id for task_id in skill_ids if task_id not in TUNED_SKILL_TASKS]
+        split,
+        [
+            task_id
+            for task_id in skill_ids
+            if task_id not in TUNED_SKILL_TASKS and task_id not in load_read()
+        ],
     )
 
 
-#: Skill tasks moved to train because a skill was edited while reading their transcripts. Each one
-#: has a replacement on the holdout for the same skill. SKILL-21 was written on train from the start:
-#: 130 round 4 fits `objectscript-sql-patterns` to it, and SKILL-09 is the holdout that says whether
-#: the fix generalises. SKILL-22 and SKILL-23 (132, `iris-ai-hub`) are train from the day written too,
-#: for the same reason: a `needs_fix` edit reads their transcripts, and SKILL-25 and SKILL-24 are the
-#: holdout that says whether the edit carries over.
+#: Skill tasks moved to train because a skill was edited while reading their transcripts, each with
+#: the replacement that stayed on the holdout for the same skill. The pairs 130 and 132 listed for
+#: SKILL-21, SKILL-22 and SKILL-23 lost their replacements (SKILL-09, SKILL-24, SKILL-25) in 135, when
+#: those were read too; `tests/e2e/tasks/skills/read.toml` is the full list and the skills that need
+#: fresh held-out tasks are in specs/135-skill-evidence/results.md.
 TUNED_SKILL_TASKS = {
     "SKILL-13": "SKILL-20",
-    "SKILL-21": "SKILL-09",
-    "SKILL-22": "SKILL-25",
-    "SKILL-23": "SKILL-24",
 }
 
 
@@ -235,10 +238,11 @@ def test_the_gate_task_is_on_the_train_side():
     assert "PILOT-01" in default_split().train
 
 
-def test_the_ai_hub_tasks_sit_on_the_sides_132_gave_them():
+def test_the_ai_hub_tasks_are_all_train_after_135_read_them():
+    """132 gave SKILL-24 and SKILL-25 the holdout. IMP-0009 and IMP-0010 then read their transcripts
+    while editing the skill, so 135 moved them to train (tests/e2e/tasks/skills/read.toml)."""
     split = default_split()
-    assert {"SKILL-22", "SKILL-23"} <= set(split.train)
-    assert {"SKILL-24", "SKILL-25"} <= set(split.holdout)
+    assert {"SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25"} <= set(split.train)
     tasks = {task.id: task for task in skill_corpus()}
     assert {tasks[i].skill for i in ("SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25")} == {
         "iris-ai-hub"

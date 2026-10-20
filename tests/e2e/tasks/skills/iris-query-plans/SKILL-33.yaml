@@ -1,0 +1,58 @@
+id: SKILL-33
+prompt: |
+  In the BENCHMARK namespace, rows get into Bench6.Orders through a bulk tool that skips index
+  maintenance, so counts per customer that the planner answers through CustIdx come back short.
+  Bench6.Admin.Repair() is called after each bulk load. Make it leave the table so that every
+  per-customer count is right, and keep the CustIdx index. It returns a %Status. Leave the classes
+  compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-query-plans
+fixtures:
+  - name: Bench6.Orders
+    content: |
+      Class Bench6.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench6.Admin
+    content: |
+      Class Bench6.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod Repair() As %Status
+      {
+          Quit $$$OK
+      }
+
+      }
+check: |
+  try { set ok=0 do ##class(Bench6.Orders).%KillExtent() set st=##class(%SQL.Statement).%New() set sc=st.%Prepare("INSERT %NOINDEX INTO Bench6.Orders (Customer) VALUES (?)") for i=1:1:100 { set rs=st.%Execute("C"_(i#10)) } set s=##class(Bench6.Admin).Repair() set a=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench6.Orders WHERE Customer = 'C1'") do a.%Next() set b=##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM Bench6.Orders WHERE Customer = 'C7'") do b.%Next() set ok=($system.Status.IsOK(s)&&(a.%GetData(1)=10)&&(b.%GetData(1)=10)&&##class(%Dictionary.CompiledIndex).%ExistsId("Bench6.Orders||CustIdx")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench6.Orders
+    content: |
+      Class Bench6.Orders Extends %Persistent
+      {
+
+      Property Customer As %String;
+
+      Index CustIdx On Customer;
+
+      }
+  - name: Bench6.Admin
+    content: |
+      Class Bench6.Admin Extends %RegisteredObject
+      {
+
+      ClassMethod Repair() As %Status
+      {
+          Quit ##class(Bench6.Orders).%BuildIndices($ListBuild("CustIdx"))
+      }
+
+      }
+tags: [index, buildindices]

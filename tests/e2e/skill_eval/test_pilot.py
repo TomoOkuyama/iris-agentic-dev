@@ -310,7 +310,7 @@ def test_the_committed_pilot_is_not_publishable():
     # The pilot installed the pack as it was. A skill added since is named here, so the record and the
     # pack can only drift apart by a visible edit.
     # 132 dropped the vendored `aihub-eap` for `iris-ai-hub`, so the record names one the pack lost.
-    added_after_pilot = {"iris-query-plans"}
+    added_after_pilot = {"iris-query-plans", "iris-mdx"}
     removed_after_pilot = {"aihub-eap"}
     assert [
         s for s in written["skills_installed"] if s not in removed_after_pilot

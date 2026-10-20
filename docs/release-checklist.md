@@ -55,6 +55,10 @@ met a stock container: they named its `BENCHMARK` namespace, or needed `iad-aihu
 - [ ] `docs/release-notes/vX.Y.Z.md` written
 - [ ] Run `/no-ai-slop` detect on the release notes — address all findings
 - [ ] All links in the release notes resolve (no 404s, no wrong anchors)
+- [ ] Rebuild the extension's changelog from the release notes:
+      `IAD_REGEN_CHANGELOG=1 cargo test --features testing --test unit test_changelog`. VS Code shows
+      `vscode-iris-agentic-dev/CHANGELOG.md` as the extension's Changelog tab (#136), and
+      `test_changelog` fails while it is behind `docs/release-notes/`
 - [ ] Homebrew install command in README matches current tap formula
 - [ ] `docs/connecting.md`, `docs/tools.md` updated if tool surface changed
 

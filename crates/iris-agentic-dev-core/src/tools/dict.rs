@@ -83,9 +83,18 @@ pub async fn handle_resolve_dynamic_dispatch(
         return ok_json(cached);
     }
 
+    if let Err(e) = crate::objectscript::validate_method_name(&p.method_name) {
+        return crate::tools::err_result(e);
+    }
     let has_prefix = !prefix.is_empty();
-    let method_esc = p.method_name.replace('"', "\\\"");
-    let prefix_esc = prefix.replace('"', "\\\"");
+    if has_prefix {
+        if let Err(e) = crate::objectscript::validate_class_name(prefix.trim_end_matches('.')) {
+            return crate::tools::err_result(e);
+        }
+    }
+    // Both are validated names with no quote in them; doubling is a second guard.
+    let method_esc = p.method_name.replace('"', "\"\"");
+    let prefix_esc = prefix.replace('"', "\"\"");
 
     // Build ObjectScript — use q=$CHAR(34) for embedded JSON quotes
     let mut lines: Vec<String> = vec!["Set q=$CHAR(34)".into()];
@@ -296,7 +305,7 @@ async fn detect_bpl_dtl_routing(
 
     let xdata_block = if is_bpl { "BPL" } else { "DTL" };
     let ext = if is_bpl { "bpl" } else { "dtl" };
-    let export_item = format!("{}.{}", class_name.replace('"', "\\\""), ext);
+    let export_item = format!("{}.{}", crate::objectscript::os_lit_inner(class_name), ext);
     let export_code = format!(
         "Set stream = ##class(%Stream.GlobalCharacter).%New() \
          Do $system.OBJ.ExportToStream(\"{}\",stream,,\"c\") \

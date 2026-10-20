@@ -509,6 +509,10 @@ pub async fn handle_iris_macro(
             if let Some(includes) = p.includes.as_deref().filter(|i| !i.is_empty()) {
                 let mut macros = Vec::new();
                 for inc in includes {
+                    // The name becomes a URL path segment; `../x` would walk out of it (137).
+                    if let Err(e) = crate::objectscript::validate_routine_name(&strip_inc(inc)) {
+                        return crate::tools::err_result(e);
+                    }
                     let path = format!("/doc/{}.inc", strip_inc(inc));
                     let body = match macro_get(iris, client, &macro_url(iris, ns, &path)).await {
                         Ok(b) => b,
@@ -688,8 +692,8 @@ pub async fn handle_iris_debug(
         "map_int" => {
             let err = p.error_string.as_deref().unwrap_or("");
             let code = format!(
-                "set err=\"{}\" set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
-                err.replace('"', "\\\"")
+                "set err={} set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
+                crate::objectscript::os_str_expr(err)
             );
             match iris.execute_via_generator(&code, ns, client).await {
                 Ok(output) => ok_json(
@@ -719,9 +723,12 @@ pub async fn handle_iris_debug(
         }
         "source_map" => {
             let cls = p.class_name.as_deref().unwrap_or("");
+            if let Err(e) = crate::objectscript::validate_class_name(cls) {
+                return crate::tools::err_result(e);
+            }
             let code = format!(
-                "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT(\"{cls}\",line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
-                cls = cls.replace('"', "\\\"")
+                "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT({cls_e},line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
+                cls_e = crate::objectscript::os_str_expr(cls)
             );
             match iris.execute_via_generator(&code, ns, client).await {
                 Ok(output) => ok_json(
@@ -900,6 +907,10 @@ pub async fn handle_iris_table_info(
     p: TableInfoParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let namespace = crate::tools::resolve_namespace(p.namespace.as_deref(), &iris.namespace);
+    // The parts are spliced into ObjectScript and into SQL text below (137).
+    if let Err(e) = crate::objectscript::validate_sql_identifier(&p.table) {
+        return crate::tools::err_result(e);
+    }
     // Split "Schema.Table" → (schema, table). Tables with no dot use SQLUser schema.
     let (sql_schema, sql_table) = match p.table.find('.') {
         Some(idx) => (p.table[..idx].to_string(), p.table[idx + 1..].to_string()),
@@ -909,7 +920,7 @@ pub async fn handle_iris_table_info(
     // Look up class projection: find a compiled class whose SQL mapping matches.
     let lookup_code = format!(
         r#"
-set sqlSchema = "{schema}", sqlTable = "{table}"
+set sqlSchema = "{schema_lit}", sqlTable = "{table_lit}"
 // Check table exists at all via INFORMATION_SCHEMA
 set rsEx = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", sqlSchema, sqlTable)
 if rsEx.%Next() && (rsEx.%GetData(1) = 0) {{ write "NOT_FOUND",! quit }}
@@ -925,8 +936,8 @@ if rs.%Next() {{
     write "DDL_TABLE",!
 }}
 "#,
-        schema = sql_schema.replace('"', "\\\""),
-        table = sql_table.replace('"', "\\\""),
+        schema_lit = crate::objectscript::os_lit_inner(&sql_schema),
+        table_lit = crate::objectscript::os_lit_inner(&sql_table),
     );
 
     let output = iris
@@ -1046,10 +1057,10 @@ async fn get_row_count(
     table: &str,
 ) -> serde_json::Value {
     let code = format!(
-        r#"set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM ""{schema}"".{table}")
+        r#"set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT COUNT(*) FROM ""{schema_lit}"".{table_lit}")
 if rs.%Next() {{ write rs.%GetData(1),! }} else {{ write "error",! }}"#,
-        schema = schema.replace('"', "\\\""),
-        table = table.replace('"', "\\\""),
+        schema_lit = crate::objectscript::os_lit_inner(schema),
+        table_lit = crate::objectscript::os_lit_inner(table),
     );
     match iris.execute_via_generator(&code, namespace, client).await {
         Ok(out) => out

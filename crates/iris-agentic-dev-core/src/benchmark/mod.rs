@@ -450,9 +450,10 @@ pub async fn acquire_lock(
     container_name: &str,
     max_age_secs: u64,
 ) -> LockResult {
-    let safe = container_name.replace('"', "\"\"");
-    let read_code =
-        format!("set ts=$Get(^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe}\"))\nwrite ts,!");
+    let safe_lit = crate::objectscript::os_lit_inner(container_name);
+    let read_code = format!(
+        "set ts=$Get(^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe_lit}\"))\nwrite ts,!"
+    );
     let existing = iris
         .execute_via_generator(&read_code, namespace, client)
         .await
@@ -475,7 +476,7 @@ pub async fn acquire_lock(
     if decision == LockResult::Acquired {
         let now = chrono::Utc::now().to_rfc3339();
         let write_code =
-            format!("set ^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe}\")=\"{now}\"\n");
+            format!("set ^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe_lit}\")=\"{now}\"\n");
         let _ = iris
             .execute_via_generator(&write_code, namespace, client)
             .await;
@@ -490,8 +491,8 @@ pub async fn release_lock(
     namespace: &str,
     container_name: &str,
 ) {
-    let safe = container_name.replace('"', "\"\"");
-    let code = format!("kill ^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe}\")\n");
+    let safe_lit = crate::objectscript::os_lit_inner(container_name);
+    let code = format!("kill ^IRISDEV(\"telemetry\",\"benchmark_lock\",\"{safe_lit}\")\n");
     let _ = iris.execute_via_generator(&code, namespace, client).await;
 }
 

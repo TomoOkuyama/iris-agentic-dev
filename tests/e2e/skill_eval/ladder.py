@@ -33,7 +33,14 @@ from dataclasses import asdict
 
 from tests.e2e import billing
 from tests.e2e.skill_eval import graded_task, pilot, provenance
-from tests.e2e.skill_eval.arms import ARMS, TOOLS, Arm, installed_skill_names, skill_arm
+from tests.e2e.skill_eval.arms import (
+    ARMS,
+    OPTIONAL_ARMS,
+    TOOLS,
+    Arm,
+    installed_skill_names,
+    skill_arm,
+)
 from tests.e2e.skill_eval.comparison import (
     MINIMUM_FLOOR,
     Comparison,
@@ -49,6 +56,9 @@ RESULTS_DIR = os.path.join(
 #: The model every arm runs, held here rather than passed per arm: the arms are comparable to each
 #: other because the model was the same in all of them.
 LADDER_MODEL = "openai/gpt-4.1"
+
+#: How many more times a session is run when the iad server never answered in it.
+SERVER_RETRIES = 2
 
 #: The same clock in every arm. A killed session counts as a failure — the task was not solved — and
 #: `solve_time` records how often that happened so the figure can be read as what it is.
@@ -608,6 +618,28 @@ def report(
 # --- the run ---------------------------------------------------------------------------------------
 
 
+def server_was_dead(run) -> bool:
+    """True for a session left unscored because the iad server never answered."""
+    return run.passed is None and "never answered" in (run.reason or "")
+
+
+def print_run(run, retry: bool = False) -> None:
+    print(
+        f"{run.task_id:<12} {run.arm:<34} "
+        f"{'—' if run.passed is None else ('PASS' if run.passed else 'FAIL'):<5} "
+        f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${run.cost_usd:.2f}"
+        + ("  TIMEOUT" if run.timed_out else "")
+        + (
+            ""
+            if run.skill_loaded is None
+            else ("  skill loaded" if run.skill_loaded else "  NOT LOADED")
+        )
+        + (f"  [{run.reason}]" if run.reason else "")
+        + ("  (running it again)" if retry else ""),
+        flush=True,
+    )
+
+
 def run_ladder(
     tasks,
     arms=ARMS,
@@ -627,6 +659,7 @@ def run_ladder(
     on_events=None,
     cap: float | None = None,
     spent: float = 0.0,
+    effort: str | None = None,
 ) -> list:
     """Every task in every arm, `repeats` times, one session at a time.
 
@@ -644,15 +677,15 @@ def run_ladder(
     once `spent` reaches `cap` the run raises `LadderAborted` before the next session starts. 132's
     holdout was estimated at $1.02 and cost $12.29, so the estimate alone cannot be the bound.
     """
-    from tests.e2e.skill_eval.cost_estimator import session_cost
+    from tests.e2e.skill_eval.cost_estimator import session_cost, session_tokens
     from tests.e2e.skill_eval.pilot import run_one
 
-    key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-    if not key:
-        raise LadderRefused(
-            "OPENAI_API_KEY is not set, so every session would fail to start and every arm would "
-            "score as an arm that failed every task"
-        )
+    from tests.e2e.skill_eval.models import MissingCredential, api_key_for
+
+    try:
+        key = openai_api_key or api_key_for(model, os.environ)
+    except MissingCredential as missing:
+        raise LadderRefused(str(missing)) from missing
     host = iris_host or os.environ.get("IRIS_HOST", "localhost")
     port = iris_web_port or os.environ.get("IRIS_WEB_PORT", "52780")
 
@@ -672,37 +705,41 @@ def run_ladder(
                     if on_events is not None:
                         on_events(t, a, r, events)
 
-                run = run_one(
-                    task,
-                    arm,
-                    openai_api_key=key,
-                    model=model,
-                    timeout=timeout,
-                    skill_names=skill_names,
-                    iris_host=host,
-                    iris_web_port=port,
-                    iris_container=iris_container,
-                    binary=binary,
-                    driver=driver,
-                    on_events=take_events,
-                )
-                cost = session_cost(streams.pop()) if streams else 0.0
-                spent += cost
-                run = type(run)(**{**asdict(run), "run_index": repeat})
-                runs.append(run)
-                print(
-                    f"{run.task_id:<12} {run.arm:<34} "
-                    f"{'—' if run.passed is None else ('PASS' if run.passed else 'FAIL'):<5} "
-                    f"{run.tool_calls:>3} calls {run.session_seconds:6.1f}s ${cost:.2f}"
-                    + ("  TIMEOUT" if run.timed_out else "")
-                    + (
-                        ""
-                        if run.skill_loaded is None
-                        else ("  skill loaded" if run.skill_loaded else "  NOT LOADED")
+                for attempt in range(1, SERVER_RETRIES + 2):
+                    run = run_one(
+                        task,
+                        arm,
+                        openai_api_key=key,
+                        model=model,
+                        timeout=timeout,
+                        skill_names=skill_names,
+                        iris_host=host,
+                        iris_web_port=port,
+                        iris_container=iris_container,
+                        binary=binary,
+                        driver=driver,
+                        on_events=take_events,
+                        effort=effort,
                     )
-                    + (f"  [{run.reason}]" if run.reason else ""),
-                    flush=True,
-                )
+                    stream = streams.pop() if streams else []
+                    cost = session_cost(stream)
+                    spent += cost
+                    run = type(run)(
+                        **{
+                            **asdict(run),
+                            "run_index": repeat,
+                            "tokens": session_tokens(stream),
+                            "cost_usd": cost,
+                            "attempts": attempt,
+                        }
+                    )
+                    if attempt > SERVER_RETRIES or not server_was_dead(run):
+                        break
+                    # The session ran without its tools, which says nothing about the arm: run it again.
+                    # Its cost is still printed, so the ledger's spend counts it.
+                    print_run(run, retry=True)
+                runs.append(run)
+                print_run(run)
                 if on_run is not None:
                     on_run(run)
                 if run.skill_loaded is not None:
@@ -814,6 +851,11 @@ def parse_args(argv=None):
         help="index of the first repeat, to resume a repeated run without relabelling it",
     )
     parser.add_argument("--model", default=LADDER_MODEL)
+    parser.add_argument(
+        "--effort",
+        default=None,
+        help="reasoning effort for a Bedrock OpenAI model (low, medium, high); recorded on every line",
+    )
     parser.add_argument("--timeout", type=int, default=SESSION_TIMEOUT)
     parser.add_argument("--container", default="iris-dev-iris")
     parser.add_argument(
@@ -835,6 +877,13 @@ def parse_args(argv=None):
         help="run only these task ids (repeatable); the --side filter still applies",
     )
     parser.add_argument(
+        "--arm",
+        action="append",
+        default=None,
+        help="run only these arms (repeatable), e.g. --arm tools --arm tools+skills to skip `bare`; "
+        "refused on the pooled rung, whose arms are built per task",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print the estimate and the task list, start no session",
@@ -851,6 +900,12 @@ def parse_args(argv=None):
         default=None,
         help="stop once --spent plus each session's measured cost reaches this many dollars",
     )
+    parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="refuse to start when tracked files are modified (a verdict run: the commit in the "
+        "record must describe what ran)",
+    )
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
     if args.ladder == "skill" and not args.skill:
@@ -859,6 +914,28 @@ def parse_args(argv=None):
             "publishes the result as that skill's own"
         )
     return args
+
+
+def session_line(
+    run: dict,
+    *,
+    side: str,
+    build: dict | None,
+    fingerprints: dict | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+) -> dict:
+    """What one finished session writes to the incremental file."""
+    line = {**run, "side": side}
+    if model:
+        line["model"] = model
+        line["effort"] = effort
+    if build:
+        line["build"] = build
+    fingerprint = (fingerprints or {}).get(run.get("task_id"))
+    if fingerprint:
+        line["task_fingerprint"] = fingerprint
+    return line
 
 
 def _main(argv=None) -> int:
@@ -890,6 +967,32 @@ def _main(argv=None) -> int:
         tasks = tools_ladder_tasks(side=args.side)
         arm_names = [arm.name for arm in arms]
 
+    if args.arm:
+        if pooled:
+            print(
+                "--arm is not available on the pooled rung: its arms are built per task"
+            )
+            return 2
+        # The tools ladder can also run the opt-in arms (skills-only) when they are named.
+        offered = list(arms) + (list(OPTIONAL_ARMS) if args.ladder == "tools" else [])
+        if args.ladder == "tools":
+            # `tools+<skill>` builds that one skill's preloaded rung for any task, so a task outside
+            # the skill corpus can be run with and without the one skill that carries its fact. A
+            # skill the pack does not ship is left out here and reported as an unknown arm below.
+            from tests.e2e.skill_eval.arms import _pack_skills
+
+            shipped = _pack_skills()
+            for name in args.arm:
+                if name.startswith("tools+") and name.removeprefix("tools+") in shipped:
+                    offered.append(skill_arm(name.removeprefix("tools+")))
+        known = [arm.name for arm in offered]
+        unknown = [name for name in args.arm if name not in known]
+        if unknown:
+            print(f"unknown arm {unknown}; this rung has {known}")
+            return 2
+        arms = [arm for arm in offered if arm.name in set(args.arm)]
+        arm_names = [arm.name for arm in arms]
+
     if args.task:
         wanted = set(args.task)
         tasks = [task for task in tasks if task.id in wanted]
@@ -907,14 +1010,52 @@ def _main(argv=None) -> int:
             print(f"  {task.id}")
         return 0
 
+    # Which build this is, taken once and copied onto every session line. A stale binary holds the old
+    # embedded skills, so it stops the run here and not in the report (135 T007).
+    from tests.e2e.skill_eval import build_stamp as build_stamp_module
+    from tests.e2e.skill_eval.provenance import resolve_binary
+
+    binary = os.environ.get("IAD_BINARY") or resolve_binary()
+    if binary:
+        # The sessions run in a temporary working directory, where a relative path means nothing.
+        binary = os.path.abspath(binary)
+    try:
+        build = build_stamp_module.build_stamp(binary)
+        build_stamp_module.assert_current(build, require_clean=args.require_clean)
+    except build_stamp_module.BuildRefused as refused:
+        print(f"refused: {refused}")
+        return 2
+    print(
+        f"build: {build['binary_version']} sha256 {build['binary_sha256'][:12]} commit "
+        f"{build['commit'][:7]}{' (modified tree)' if build['dirty'] else ''}"
+    )
+
     # Written as they land. A four-hour run that exists only in memory is a four-hour run that a
     # laptop sleeping loses whole.
     incremental = os.path.join(RESULTS_DIR, f"{run_id}.runs.jsonl")
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
+    fingerprints = {
+        task.id: graded_task.task_fingerprint(task)
+        for task in tasks
+        if isinstance(task, graded_task.GradedTask)
+    }
+
     def record(run):
         with open(incremental, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps({**asdict(run), "side": args.side}) + "\n")
+            handle.write(
+                json.dumps(
+                    session_line(
+                        asdict(run),
+                        side=args.side,
+                        build=build,
+                        fingerprints=fingerprints,
+                        model=args.model,
+                        effort=args.effort,
+                    )
+                )
+                + "\n"
+            )
 
     transcripts = os.path.join(RESULTS_DIR, f"{run_id}.transcripts")
 
@@ -937,12 +1078,13 @@ def _main(argv=None) -> int:
             timeout=args.timeout,
             iris_web_port=args.web_port,
             iris_container=args.container,
-            binary=os.environ.get("IAD_BINARY"),
+            binary=binary,
             driver=driver,
             on_run=record,
             on_events=transcript_writer(transcripts),
             cap=args.cap,
             spent=args.spent,
+            effort=args.effort,
         )
     except LadderAborted as aborted:
         # No report. A report over a run that stopped early would print a lift whose denominator is an
@@ -968,6 +1110,7 @@ def _main(argv=None) -> int:
         transcripts=os.path.relpath(transcripts),
         side=args.side,
     )
+    written["build"] = build
     for record_ in written["comparisons"]:
         print(
             f"{record_['arm_a']} -> {record_['arm_b']}: b={record_['b']} c={record_['c']} "

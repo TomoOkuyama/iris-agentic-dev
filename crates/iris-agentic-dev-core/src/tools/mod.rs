@@ -1,6 +1,24 @@
 use crate::elicitation::ElicitationStore;
 use crate::iris::connection::IrisConnection;
 
+/// Add `hint`/`hint_ref` to a compile response when the compiler output matches a rule.
+pub(crate) fn add_compile_hint(resp: &mut serde_json::Value, lines: &[String]) {
+    if let Some(hint) = error_hints::compile_error_hint(lines) {
+        hint.apply(resp);
+    }
+}
+
+/// Add `hint`/`hint_ref` to a successful compile when the class source has a method that compiles
+/// and never runs. Leaves an existing hint alone.
+pub(crate) fn add_source_hint(resp: &mut serde_json::Value, source: Option<&str>) {
+    if resp.get("hint").is_some() {
+        return;
+    }
+    if let Some(hint) = source.and_then(error_hints::compiled_source_hint) {
+        hint.apply(resp);
+    }
+}
+
 /// Remediation hint appended to DOCKER_REQUIRED error strings.
 /// Guides native IRIS users (no Docker) toward the HTTP/Atelier REST path.
 const DOCKER_REQUIRED_HINT: &str = " Ensure HTTP/Atelier REST is reachable: verify \
@@ -1309,29 +1327,30 @@ pub fn build_test_run_code(
     token: &str,
     is_test_production: bool,
 ) -> String {
-    let safe_pattern = pattern.replace('"', "\\\"");
-    let is_class_pattern = !safe_pattern.contains('/') && !safe_pattern.contains('\\');
+    use crate::objectscript::{os_lit_inner, validate_class_name};
+    let is_class_pattern = !pattern.contains('/') && !pattern.contains('\\');
+    // The pattern goes inside literals below, so it is escaped for them; `.Run()` splices it bare
+    // as a class name, so that path needs a valid one (137).
+    let (pattern_lit, flags_lit, token_lit) = (
+        os_lit_inner(pattern),
+        os_lit_inner(flags),
+        os_lit_inner(token),
+    );
 
-    if is_test_production && is_class_pattern {
-        format!(r#"do ##class({pattern}).Run()"#, pattern = safe_pattern,)
+    if is_test_production && is_class_pattern && validate_class_name(pattern).is_ok() {
+        format!(r#"do ##class({pattern}).Run()"#)
     } else if is_class_pattern {
         format!(
-            r#"do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
-            token = token,
-            pattern = safe_pattern,
-            flags = flags,
+            r#"do ##class(%UnitTest.Manager).RunTest("{pattern_lit}","{flags_lit}","{token_lit}")"#
         )
     } else {
         format!(
             r#"set utRoot="/tmp/httest/"
 if '##class(%File).DirectoryExists(utRoot) {{ do ##class(%File).CreateDirectoryChain(utRoot) }}
-set pkgDir=utRoot_"{pattern}"_"/"
+set pkgDir=utRoot_"{pattern_lit}"_"/"
 if '##class(%File).DirectoryExists(pkgDir) {{ do ##class(%File).CreateDirectoryChain(pkgDir) }}
 set ^UnitTestRoot=utRoot
-do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
-            token = token,
-            pattern = safe_pattern,
-            flags = flags,
+do ##class(%UnitTest.Manager).RunTest("{pattern_lit}","{flags_lit}","{token_lit}")"#
         )
     }
 }
@@ -1339,11 +1358,10 @@ do ##class(%UnitTest.Manager).RunTest("{pattern}","{flags}","{token}")"#,
 /// ObjectScript snippet to probe whether a class extends %UnitTest.TestProduction.
 /// Returns code that writes "1" if it does, "0" otherwise.
 pub fn build_superclass_probe(class_name: &str) -> String {
-    let safe = class_name.replace('"', "\\\"");
+    let cls_lit = crate::objectscript::os_lit_inner(class_name);
     format!(
-        r#"set oref=##class(%Dictionary.ClassDefinition).%OpenId("{cls}")
+        r#"set oref=##class(%Dictionary.ClassDefinition).%OpenId("{cls_lit}")
 if $isobject(oref) {{ write $select($find(oref.Super,"%UnitTest.TestProduction"):1,1:0) }} else {{ write 0 }}"#,
-        cls = safe,
     )
 }
 
@@ -1823,6 +1841,38 @@ pub fn build_count_query(table: Option<&str>, query: Option<&str>) -> String {
     }
 }
 
+/// `build_count_query`, refused when the table is not a table name or the query is not a read.
+/// The count mode used to skip both checks the other modes apply (137).
+pub fn count_query_checked(
+    table: Option<&str>,
+    query: Option<&str>,
+) -> Result<String, serde_json::Value> {
+    if query.is_none() {
+        if let Some(t) = table {
+            crate::objectscript::validate_sql_identifier(t)?;
+        }
+    }
+    if let Some(q) = query {
+        if q.contains(';') {
+            return Err(serde_json::json!({
+                "success": false,
+                "error_code": "INVALID_PARAMS",
+                "error": "mode=\"count\" takes one SELECT; ';' is not allowed",
+            }));
+        }
+    }
+    let sql = build_count_query(table, query);
+    validate_read_only_sql(&sql).map_err(|kw| {
+        serde_json::json!({
+            "success": false,
+            "error_code": "SQL_WRITE_BLOCKED",
+            "error": format!("mode=\"count\" counts a read; '{kw}' is not allowed"),
+            "blocked_keyword": kw,
+        })
+    })?;
+    Ok(sql)
+}
+
 /// Clamps `max_rows_affected` for `iris_query` `mode="write"` UPDATE/DELETE pre-checks.
 /// `None` or `Some(0)` map to the default (1000); values above 10000 are clamped to 10000.
 pub fn clamp_max_rows_affected(value: Option<u32>) -> u32 {
@@ -1933,7 +1983,10 @@ async fn iris_query_count(
         );
     }
 
-    let count_sql = build_count_query(table, query);
+    let count_sql = match count_query_checked(table, query) {
+        Ok(sql) => sql,
+        Err(e) => return err_result(e),
+    };
     let query_url = iris.versioned_ns_url(namespace, "/action/query");
     let resp = client
         .post(&query_url)
@@ -2024,12 +2077,12 @@ async fn iris_query_write(
             Some(count_sql) => {
                 let code = format!(
                     r#"Set st=##class(%SQL.Statement).%New()
-Set sc=st.%Prepare("{count_sql}")
+Set sc=st.%Prepare("{count_sql_lit}")
 If $$$ISERR(sc) {{ Write "ERROR:ROWS_CHECK_FAILED:"_$System.Status.GetErrorText(sc) Quit }}
 Set rs=st.%Execute()
 If rs.%SQLCODE<0 {{ Write "ERROR:ROWS_CHECK_FAILED:"_rs.%Message Quit }}
 If rs.%Next() {{ Write "OK:"_rs.%GetData(1) }} Else {{ Write "OK:0" }}"#,
-                    count_sql = count_sql.replace('"', "\"\""),
+                    count_sql_lit = crate::objectscript::os_lit_inner(&count_sql),
                 );
                 match iris.execute_via_generator(&code, namespace, client).await {
                     Ok(out) => {
@@ -2064,12 +2117,12 @@ If rs.%Next() {{ Write "OK:"_rs.%GetData(1) }} Else {{ Write "OK:0" }}"#,
 
     let code = format!(
         r#"Set st=##class(%SQL.Statement).%New()
-Set sc=st.%Prepare("{sql}")
+Set sc=st.%Prepare("{sql_lit}")
 If $$$ISERR(sc) {{ Write "ERROR:SQL_ERROR:"_$System.Status.GetErrorText(sc) Quit }}
 Set rs=st.%Execute()
 If rs.%SQLCODE<0 {{ Write "ERROR:SQL_ERROR:"_rs.%Message Quit }}
 Write "OK:"_rs.%ROWCOUNT"#,
-        sql = p.query.replace('"', "\"\""),
+        sql_lit = crate::objectscript::os_lit_inner(&p.query),
     );
     match iris.execute_via_generator(&code, namespace, client).await {
         Ok(out) => {
@@ -3406,6 +3459,31 @@ impl IrisTools {
         let _ = log.write(&entry);
     }
 
+    /// Runs the shared policy gate for a tool that has no gate of its own, audits a refusal and
+    /// returns it. `None` means the call may proceed.
+    fn policy_refusal(
+        &self,
+        tool_name: &str,
+        params_json: serde_json::Value,
+    ) -> Option<Result<CallToolResult, McpError>> {
+        let (sm_server, policy) = self.active_server_manager_policy();
+        let server = sm_server.as_deref().unwrap_or("");
+        let gate =
+            crate::policy::gate::dispatch_gate(tool_name, server, policy.as_ref(), &params_json)
+                .err()?;
+        self.write_audit_entry(
+            tool_name,
+            server,
+            policy.as_ref(),
+            "blocked",
+            Some("policy"),
+            None,
+            params_json,
+        );
+        self.record_call(tool_name, false);
+        Some(err_result(gate))
+    }
+
     /// The gate sequence every arbitrary-execution tool runs before it sends a line to IRIS.
     ///
     /// Returns `Some(refusal)` when the call is blocked, `None` when it may proceed. The refusal is
@@ -3600,8 +3678,8 @@ impl IrisTools {
             if docker_only || no_pws {
                 let code = format!(
                     "do $SYSTEM.OBJ.Compile(\"{}\",\"{}\")",
-                    p.target.replace('"', "\\\""),
-                    p.flags.replace('"', "\\\""),
+                    crate::objectscript::os_lit_inner(&p.target),
+                    crate::objectscript::os_lit_inner(&p.flags),
                 );
                 let exec_path = nopws::execution_path_docker(ssh_host_compile.as_deref());
                 let result = if let Some(ref ssh_host) = ssh_host_compile {
@@ -3753,7 +3831,7 @@ impl IrisTools {
                 } else {
                     None
                 };
-                return ok_json(serde_json::json!({
+                let mut resp = serde_json::json!({
                     "success": success,
                     "target": doc_name,
                     "uploaded_from": local_src,
@@ -3763,7 +3841,17 @@ impl IrisTools {
                     "warnings": [],
                     "console": console,
                     "content": content,
-                }));
+                });
+                if success {
+                    let source = resp["content"].as_str().map(str::to_string);
+                    add_source_hint(&mut resp, source.as_deref());
+                } else {
+                    add_compile_hint(
+                        &mut resp,
+                        &[cr.errors.as_slice(), cr.console.as_slice()].concat(),
+                    );
+                }
+                return ok_json(resp);
             }
         }
 
@@ -3960,6 +4048,15 @@ impl IrisTools {
         if let Some(uri) = open_uri {
             resp["open_uri"] = serde_json::Value::String(uri);
         }
+        if success {
+            add_source_hint(&mut resp, content.as_deref());
+        } else {
+            let lines: Vec<String> = console
+                .iter()
+                .filter_map(|l| l.as_str().map(str::to_string))
+                .collect();
+            add_compile_hint(&mut resp, &lines);
+        }
 
         // Progressive disclosure (027): truncate errors array when count exceeds threshold.
         // Threshold counts distinct error+warning entries (not raw console lines).
@@ -4006,7 +4103,7 @@ impl IrisTools {
         // US3: namespace existence check before running tests.
         let ns_check_code = format!(
             "write ##class(%SYS.Namespace).Exists(\"{}\")",
-            namespace.replace('"', "\\\"")
+            crate::objectscript::os_lit_inner(&namespace)
         );
         let ns_exists = tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -4030,7 +4127,8 @@ impl IrisTools {
 
         // Generate a UUID correlation token; used as UserParam in RunTest.
         let correlation_token = log_store::new_log_id();
-        let safe_pattern = p.pattern.replace('"', "\\\"");
+        // Escaped where it is spliced, in build_test_run_code and build_superclass_probe (137).
+        let safe_pattern = p.pattern.clone();
 
         // Detect whether the pattern is a compiled class name or a filesystem directory path.
         // Class names contain dots and no path separators: "ISC.sql.Tests", "MyApp.Tests.*"
@@ -5712,7 +5810,7 @@ impl IrisTools {
         let client = self.http_client();
         let code = format!(
             "Write ##class(%Studio.Debugger).SourceLine(\"{}\",{})",
-            p.routine.replace('"', "\\\""),
+            crate::objectscript::os_lit_inner(&p.routine),
             p.offset
         );
         match iris.execute_via_generator(&code, namespace, client).await {
@@ -5815,7 +5913,7 @@ impl IrisTools {
         // Build source map by querying %Studio.Debugger for each .INT method
         let code = format!(
             "set cls=\"{}\" set rtn=$translate(cls,\".\",\".\") set map=\"{{\" set first=1 set method=\"\" for {{ set method=$order(^rIndex(rtn,method)) quit:method=\"\"  set intline=$get(^rIndex(rtn,method)) if 'first {{ set map=map_\",\" }} set map=map_\"\\\"\"_method_\"\\\":\\\"\"_intline_\"\\\"\" set first=0 }} set map=map_\"}}\" write map",
-            cls_name.replace('"', "\\\"")
+            crate::objectscript::os_lit_inner(cls_name)
         );
         match iris.execute_via_generator(&code, namespace, client).await {
             Ok(output) => {
@@ -6054,7 +6152,10 @@ Methods:
 
         let (synth, synth_searched) = self.synthesized_skills().await;
         if synth_searched {
-            let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
+            let code = format!(
+                "Write $Get(^SKILLS(\"{}\"))",
+                crate::objectscript::os_lit_inner(&p.name)
+            );
             if let Some(iris) = self.iris_arc() {
                 if let Ok(output) = iris
                     .execute(&code, &crate::tools::skills_tools::skills_namespace())
@@ -6179,7 +6280,7 @@ Methods:
         if let Some(iris) = self.iris_arc().as_deref() {
             let code = format!(
                 "Kill ^SKILLS(\"{}\") Write \"OK\"",
-                p.name.replace('"', "\\\"")
+                crate::objectscript::os_lit_inner(&p.name)
             );
             match iris
                 .execute(&code, &crate::tools::skills_tools::skills_namespace())
@@ -7381,7 +7482,7 @@ Methods:
     }
 
     #[tool(
-        description = "List or inspect Ensemble business rules (Ens.Rule.RuleSet). action=list returns all rule sets with name/description/modified. action=get with rule_name returns conditions/actions counts for that rule set. Returns INTEROP_NOT_AVAILABLE if Ensemble is not installed. Skill: ensemble-production (merged toolset only). `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
+        description = "List or inspect interoperability business rules. Reads rule classes (subclasses of Ens.Rule.Definition with XData RuleDefinition, the kind the Rule Editor opens) and legacy Ens.Rule.RuleSet rows; each result has kind=class or kind=legacy. action=list returns {name, class_name, kind, rule_type, description, modified}. action=get with rule_name (the rule class name) returns the rule sets, each rule's when conditions and actions, its rule_type and context; for a legacy rule set only condition/action counts. Returns INTEROP_NOT_AVAILABLE if Ensemble is not installed. Skill: ensemble-production (merged toolset only). `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
         annotations(read_only_hint = true),
         output_schema = output_schemas::oneof_output_schema::<IrisBusinessRuleInfoResponse>()
     )]
@@ -8876,6 +8977,15 @@ Methods:
             .map(|s| s.to_string());
         let count = p.get("count").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
 
+        // The preview reads the global, and its token is what global_kill accepts, so it answers
+        // to the same blocklist and PHI gates as iris_global (137).
+        if let Some(refusal) = self.policy_refusal(
+            "global_preview",
+            serde_json::json!({"action": "get", "global": global}),
+        ) {
+            return refusal;
+        }
+
         let iris = self.resolve_server(server.as_deref()).await?;
 
         let result = admin_tools::global_preview_impl(
@@ -8917,6 +9027,13 @@ Methods:
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+
+        if let Some(refusal) = self.policy_refusal(
+            "global_kill",
+            serde_json::json!({"action": "kill", "global": global}),
+        ) {
+            return refusal;
+        }
 
         let iris = self.resolve_server(server.as_deref()).await?;
 
@@ -9127,6 +9244,12 @@ Methods:
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let iris = self.resolve_server(server.as_deref()).await?;
+        // Journal records carry global values, so the bulk-PHI gate that refuses the iris_admin
+        // route refuses this one too (137). After the server lookup, so a wrong server name is
+        // still reported as that.
+        if let Some(refusal) = self.policy_refusal("journal_search", p.clone()) {
+            return refusal;
+        }
         let result = admin_tools::journal_search_impl(
             &iris,
             &self.client,
@@ -9490,6 +9613,25 @@ impl ServerHandler for IrisTools {
                         }
                     }
 
+                    // Namespace check, third (137). Every tool that takes a namespace splices it
+                    // into generated code (`New $NAMESPACE Set $NAMESPACE="…"`, `zn`, a URL), and
+                    // `resolve_namespace` accepts any non-empty string. One site, like the
+                    // unknown-parameter check above, so the next tool cannot forget it.
+                    if let Some(args) = request.arguments.as_ref() {
+                        for (key, value) in args {
+                            if key != "namespace" && !key.ends_with("_namespace") {
+                                continue;
+                            }
+                            let Some(ns) = value.as_str().filter(|s| !s.is_empty()) else {
+                                continue;
+                            };
+                            if let Err(e) = crate::objectscript::validate_namespace(ns) {
+                                self.record_call(&request.name, false);
+                                return err_result(e).map(Into::into);
+                            }
+                        }
+                    }
+
                     // T019: warn once when the connection is docker_only so operators know
                     // that HTTP headers (including User-Agent) cannot be set on this transport.
                     {
@@ -9836,7 +9978,7 @@ async fn detect_xdata_flow(
     let xdata_block = if is_bpl { "BPL" } else { "DTL" };
     // BPL/DTL classes must be exported with their type suffix (.bpl/.dtl), not as .cls
     let ext = if is_bpl { "bpl" } else { "dtl" };
-    let export_item = format!("{}.{}", class_name.replace('"', "\\\""), ext);
+    let export_item = format!("{}.{}", crate::objectscript::os_lit_inner(class_name), ext);
     let export_code = format!(
         "Set stream = ##class(%Stream.GlobalCharacter).%New() \
          Do $system.OBJ.ExportToStream(\"{}\",stream,,\"c\") \

@@ -39,6 +39,18 @@ CORPUS = HINTS_DIR / "replay.jsonl"
 SPLIT = HINTS_DIR / "hints-split.toml"
 MAX_CHARS = 400
 
+#: Rules the replay corpus cannot hold. It replays `iris_query` and `iris_execute` calls; these four
+#: fire on a compile error (`iris_doc put`, `iris_compile`) or on an `iris_execute_method` result,
+#: so the optimizer does not rewrite their text. Added after 129, from the improve loop.
+NOT_REPLAYED = frozenset(
+    {
+        "delete_callback_oid",
+        "unknown_persistent_callback",
+        "object_reference_result",
+        "instance_method_on_class",
+    }
+)
+
 _EXTRA = (
     re.compile(r"(?<![\w-])(-\d{1,4})\b"),
     re.compile(r"\b([A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9])\b"),

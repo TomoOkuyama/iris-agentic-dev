@@ -1,0 +1,45 @@
+id: SKILL-28
+prompt: |
+  Bench.Lst.NonEmpty(pCsv) in the BENCHMARK namespace is a stub. Make it return a $LIST (the
+  $ListBuild kind of list) holding the non-empty comma-separated pieces of pCsv, in order. A piece is
+  empty when it has nothing between its commas. When pCsv has no non-empty piece, for example "" or
+  ",,", it must return an empty list, one whose $ListLength is 0. Leave the class compiled on the
+  server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-guardrails
+fixtures:
+  - name: Bench.Lst
+    content: |
+      Class Bench.Lst Extends %RegisteredObject
+      {
+
+      ClassMethod NonEmpty(pCsv As %String) As %List
+      {
+          Quit ""
+      }
+
+      }
+check: |
+  try { set a=##class(Bench.Lst).NonEmpty("a,,b") set b=##class(Bench.Lst).NonEmpty("") set c=##class(Bench.Lst).NonEmpty(",,") set d=##class(Bench.Lst).NonEmpty("x") set ok=(($listlength(a)=2)&&($list(a,1)="a")&&($list(a,2)="b")&&($listlength(b)=0)&&($listlength(c)=0)&&($listlength(d)=1)&&($list(d,1)="x")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench.Lst
+    content: |
+      Class Bench.Lst Extends %RegisteredObject
+      {
+
+      ClassMethod NonEmpty(pCsv As %String) As %List
+      {
+          Set tList = ""
+          For i = 1:1:$Length(pCsv, ",") {
+              Set tPiece = $Piece(pCsv, ",", i)
+              If tPiece '= "" {
+                  Set tList = tList _ $ListBuild(tPiece)
+              }
+          }
+          Quit tList
+      }
+
+      }
+tags: [lists, listbuild]

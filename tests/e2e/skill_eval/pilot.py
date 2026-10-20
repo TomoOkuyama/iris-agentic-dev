@@ -41,11 +41,13 @@ import os
 import sys
 import tempfile
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from tests.e2e import billing
 from tests.e2e.skill_eval import graded_task
-from tests.e2e.skill_eval.arms import ARMS, Arm, installed_skill_names
+from tests.e2e.skill_eval.models import localize_prompt
+from tests.e2e.skill_eval.arms import ARMS, MCP_SERVER_NAME, Arm, installed_skill_names
+from tests.e2e.skill_eval.driver import server_never_answered
 from tests.e2e.skill_eval.comparison import Comparison, pair_arms
 from tests.e2e.skill_eval.graded_task import CheckBroken, GradedTask
 
@@ -114,6 +116,19 @@ class ArmRun:
     #: Whether the session loaded the arm's skill with the `skill` tool. None for an arm that does not
     #: preload, where the question does not apply.
     skill_loaded: bool | None = None
+    #: Input, output, reasoning and cache tokens, summed from the session's `step_finish` events (135).
+    #: Empty for a record written before then.
+    tokens: dict = field(default_factory=dict)
+    #: Dollars the session billed (sum of `step_finish.cost`). None for a record from before 135, which
+    #: printed the figure and did not store it.
+    cost_usd: float | None = None
+    #: How many times the session was run to get this result: more than 1 when the iad server never
+    #: answered in an earlier attempt (the attempt that is kept is the last).
+    attempts: int = 1
+    #: The fraction of the task's `quality_checks` that passed, beside `passed` (135). None when the
+    #: task declares none or none answered.
+    quality: float | None = None
+    quality_detail: dict = field(default_factory=dict)
 
 
 #: In front of every session, every arm. Before 130 round 3 the harness leaked the operator's own
@@ -268,6 +283,7 @@ def run_one(
     binary: str | None = None,
     driver=None,
     on_events=None,
+    effort: str | None = None,
 ) -> ArmRun:
     """One task, one arm, one session, one check.
 
@@ -308,7 +324,7 @@ def run_one(
             seconds=time.monotonic() - started,
         )
 
-    with IsolatedEnv(openai_api_key=openai_api_key) as env:
+    with IsolatedEnv(openai_api_key=openai_api_key, model=model, effort=effort) as env:
         # The driver configures its own arm and returns the environment its own session needs. Under
         # opencode that is `arms.configure` plus `OPENCODE_CONFIG_CONTENT`; under prime-agent it is a
         # sandboxed HOME holding a settings file. Reading one harness's variables here is what made
@@ -343,7 +359,9 @@ def run_one(
                 prompt = (
                     AUTONOMY_PREAMBLE
                     + (preload_preamble(arm.skill_names) if arm.preload else "")
-                    + task.prompt
+                    + localize_prompt(
+                        task.prompt, web_port=iris_web_port, container=iris_container
+                    )
                 )
                 events = driver.collect_events(
                     prompt,
@@ -378,6 +396,8 @@ def run_one(
         reason = None
     except CheckBroken as exc:
         passed, reason = None, f"the check did not answer: {exc}"
+    # Read before the cleanup below, while IRIS still holds what the session left.
+    quality_detail = graded_task.run_quality(task) if task.quality_checks else {}
     try:
         graded_task.reset_documents(
             graded_task.created_classes(
@@ -398,6 +418,12 @@ def run_one(
         # Unlike a class leftover, this state is invisible to the next snapshot and would decide the
         # next session's check, so the run is not scored.
         passed, reason = None, str(exc)
+    if passed is not None and server_never_answered(session.tool_calls, MCP_SERVER_NAME):
+        # The check still ran, but the arm never had its tools: the answer is the server's.
+        passed, reason = (
+            None,
+            "the iad server never answered (every call timed out), so the session ran without its tools",
+        )
     if loaded is False:
         # The check still ran, so IRIS is left as the agent left it, but the answer is not this
         # arm's: a skill the agent never read cannot be credited or blamed.
@@ -424,6 +450,8 @@ def run_one(
         seconds=time.monotonic() - started,
         session_seconds=session_seconds,
         skill_loaded=loaded,
+        quality=graded_task.quality_score(quality_detail),
+        quality_detail=quality_detail,
     )
 
 

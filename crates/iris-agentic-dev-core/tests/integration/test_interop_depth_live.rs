@@ -85,6 +85,34 @@ Write $Select($$$ISERR(sc):"ERR",1:"OK")"#,
     }
 }
 
+/// Removes every version of a seeded rule set. A seeded row that is never removed stays in the
+/// namespace for good: 228 of them had piled up before this existed.
+async fn drop_rule_set(iris: &IrisConnection, name: &str) {
+    let Ok(client) = IrisConnection::http_client() else {
+        return;
+    };
+    let code = format!(
+        r#"Set rs=##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM Ens_Rule.RuleSet WHERE Name = ?","{name}")
+While rs.%Next() {{ Do ##class(Ens.Rule.RuleSet).%DeleteId(rs.%Get("ID")) }}
+Write "OK""#,
+        name = name.replace('"', "\"\"")
+    );
+    let _ = iris.execute_via_generator(&code, "USER", &client).await;
+}
+
+/// What `get` says about a rule once its seed has been dropped.
+async fn get_after_drop(iris: &IrisConnection, name: &str) -> serde_json::Value {
+    let params = BusinessRuleInfoParams {
+        action: "get".to_string(),
+        rule_name: Some(name.to_string()),
+        namespace: "USER".to_string(),
+    };
+    let result = handle_iris_business_rule_info(Some(iris), &params)
+        .await
+        .expect("Ok");
+    parse_result(result)
+}
+
 // ---------------------------------------------------------------------------
 // T022 / US1: iris_message_body live — real message returns body + content_type
 // ---------------------------------------------------------------------------
@@ -219,10 +247,16 @@ async fn live_business_rule_info_get_real_rule_returns_success() {
         .await
         .expect("Ok");
     let v = parse_result(result);
+    drop_rule_set(&iris, rule_name).await;
     assert_eq!(v["success"], true, "got: {v}");
     assert_eq!(v["name"], rule_name);
     assert!(v["conditions"].is_array());
     assert!(v["actions"].is_array());
+    let gone = get_after_drop(&iris, rule_name).await;
+    assert_eq!(
+        gone["error_code"], "RULE_NOT_FOUND",
+        "seed left behind: {gone}"
+    );
 }
 
 #[tokio::test]
@@ -244,10 +278,16 @@ async fn live_business_rule_info_list_includes_seeded_rule() {
         .expect("Ok");
     let v = parse_result(result);
     assert_eq!(v["success"], true, "got: {v}");
+    drop_rule_set(&iris, rule_name).await;
     let rules = v["rules"].as_array().expect("rules must be array");
     assert!(
         rules.iter().any(|r| r["name"] == rule_name),
         "seeded rule '{rule_name}' must appear in list: {rules:?}"
+    );
+    let gone = get_after_drop(&iris, rule_name).await;
+    assert_eq!(
+        gone["error_code"], "RULE_NOT_FOUND",
+        "seed left behind: {gone}"
     );
 }
 
@@ -313,4 +353,172 @@ async fn live_message_body_allow_with_ack_proceeds_to_iris() {
     let v = parse_result(result);
     // Gate must not block — proceeds to IRIS and gets MESSAGE_NOT_FOUND (not PHI codes).
     assert_eq!(v["error_code"], "MESSAGE_NOT_FOUND", "got: {v}");
+}
+
+// ---------------------------------------------------------------------------
+// 136: rule classes (Ens.Rule.Definition), the kind the Rule Editor opens
+// ---------------------------------------------------------------------------
+
+const RULE_CLASS: &str = "IADTest136.IntakeRule";
+
+const RULE_CLASS_SOURCE: &str = r#"/// Intake outcome for the 136 live test
+Class IADTest136.IntakeRule Extends Ens.Rule.Definition
+{
+
+Parameter RuleAssistClass = "Ens.Rule.GeneralBusinessRuleAssist";
+
+XData RuleDefinition [ XMLNamespace = "http://www.intersystems.com/rule" ]
+{
+<ruleDefinition alias="" context="Ens.BusinessProcess" production="">
+<ruleSet name="main" effectiveBegin="" effectiveEnd="">
+<rule name="duplicate">
+<when condition="(1=0)||(2=0)">
+<return>"invalid"</return>
+</when>
+</rule>
+<rule name="card" disabled="true">
+<when condition="1=1">
+<return>"routine"</return>
+</when>
+</rule>
+<return>"further_review"</return>
+</ruleSet>
+</ruleDefinition>
+}
+
+}
+"#;
+
+fn atelier(path: &str) -> (reqwest::Client, String, String, String) {
+    let host = std::env::var("IRIS_HOST").unwrap_or_else(|_| "localhost".into());
+    let port = std::env::var("IRIS_WEB_PORT").unwrap_or_else(|_| "52773".into());
+    let user = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".into());
+    let pass = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".into());
+    (
+        reqwest::Client::new(),
+        format!("http://{host}:{port}/api/atelier/v1/USER/{path}"),
+        user,
+        pass,
+    )
+}
+
+async fn put_and_compile_rule_class() {
+    let (client, url, user, pass) = atelier(&format!("doc/{RULE_CLASS}.cls?ignoreConflict=1"));
+    let lines: Vec<&str> = RULE_CLASS_SOURCE.lines().collect();
+    let put = client
+        .put(&url)
+        .basic_auth(&user, Some(&pass))
+        .json(&serde_json::json!({"enc": false, "content": lines}))
+        .send()
+        .await
+        .expect("PUT reaches IRIS");
+    assert!(put.status().is_success(), "PUT failed: {}", put.status());
+    let (client, url, user, pass) = atelier("action/compile");
+    let compiled: serde_json::Value = client
+        .post(&url)
+        .basic_auth(&user, Some(&pass))
+        .json(&serde_json::json!([format!("{RULE_CLASS}.cls")]))
+        .send()
+        .await
+        .expect("compile reaches IRIS")
+        .json()
+        .await
+        .expect("compile answers JSON");
+    assert_eq!(
+        compiled["status"]["errors"].as_array().map(|e| e.len()),
+        Some(0),
+        "the rule class must compile: {compiled}"
+    );
+}
+
+async fn delete_rule_class() {
+    let (client, url, user, pass) = atelier(&format!("doc/{RULE_CLASS}.cls"));
+    let _ = client
+        .delete(&url)
+        .basic_auth(&user, Some(&pass))
+        .send()
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_business_rule_info_sees_a_rule_class() {
+    let iris = live_iris().expect("live_iris always returns Some");
+    put_and_compile_rule_class().await;
+
+    let list = parse_result(
+        handle_iris_business_rule_info(
+            Some(&iris),
+            &BusinessRuleInfoParams {
+                action: "list".to_string(),
+                rule_name: None,
+                namespace: "USER".to_string(),
+            },
+        )
+        .await
+        .expect("Ok"),
+    );
+    let get = parse_result(
+        handle_iris_business_rule_info(
+            Some(&iris),
+            &BusinessRuleInfoParams {
+                action: "get".to_string(),
+                rule_name: Some(RULE_CLASS.to_string()),
+                namespace: "USER".to_string(),
+            },
+        )
+        .await
+        .expect("Ok"),
+    );
+    delete_rule_class().await;
+
+    let listed = list["rules"]
+        .as_array()
+        .expect("rules array")
+        .iter()
+        .find(|r| r["name"] == RULE_CLASS)
+        .cloned()
+        .unwrap_or_else(|| panic!("the rule class is missing from list: {list}"));
+    assert_eq!(listed["kind"], "class");
+    assert_eq!(listed["rule_type"], "Ens.Rule.GeneralBusinessRuleAssist");
+    assert_eq!(
+        listed["description"],
+        "Intake outcome for the 136 live test"
+    );
+
+    assert_eq!(get["success"], true, "get failed: {get}");
+    assert_eq!(get["kind"], "class");
+    assert_eq!(get["name"], RULE_CLASS);
+    let set = &get["rule_sets"][0];
+    assert_eq!(set["name"], "main");
+    assert_eq!(set["rules"][0]["name"], "duplicate");
+    assert_eq!(set["rules"][0]["whens"][0]["condition"], "(1=0)||(2=0)");
+    assert_eq!(set["rules"][0]["whens"][0]["actions"][0]["type"], "return");
+    assert_eq!(
+        set["rules"][0]["whens"][0]["actions"][0]["value"],
+        "\"invalid\""
+    );
+    assert_eq!(set["rules"][1]["disabled"], true);
+    assert_eq!(set["actions"][0]["value"], "\"further_review\"");
+    assert_eq!(get["conditions"].as_array().map(|c| c.len()), Some(2));
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_business_rule_info_get_on_a_code_class_is_not_a_rule() {
+    let iris = live_iris().expect("live_iris always returns Some");
+    // A compiled class that is not a rule: get must not report it as one.
+    let get = parse_result(
+        handle_iris_business_rule_info(
+            Some(&iris),
+            &BusinessRuleInfoParams {
+                action: "get".to_string(),
+                rule_name: Some("Ens.BusinessProcess".to_string()),
+                namespace: "USER".to_string(),
+            },
+        )
+        .await
+        .expect("Ok"),
+    );
+    assert_eq!(get["error_code"], "RULE_NOT_FOUND", "got: {get}");
 }

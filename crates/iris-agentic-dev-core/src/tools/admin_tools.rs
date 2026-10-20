@@ -2,6 +2,7 @@
 //! Implements T077–T105 from spec 072-c.
 
 use crate::iris::connection::{generator_error_message, is_generator_error, IrisConnection};
+use crate::objectscript::{os_str_expr, validate_class_name, validate_timestamp};
 use rmcp::{model::*, ErrorData as McpError};
 use std::sync::Arc;
 
@@ -59,14 +60,21 @@ pub async fn global_preview_impl(
     params: GlobalPreviewParams,
     confirm_tokens: &tokio::sync::Mutex<std::collections::HashMap<String, ConfirmEntry>>,
 ) -> Result<CallToolResult, McpError> {
-    use crate::tools::global::{build_global_ref, normalize_global_name};
+    use crate::tools::global::{build_global_ref, normalize_global_name, validate_global_name};
 
     let name = normalize_global_name(&params.global);
+    if let Err(e) = validate_global_name(&name) {
+        return err_json(
+            "INVALID_GLOBAL_NAME",
+            e["message"].as_str().unwrap_or("invalid global name"),
+        );
+    }
     let global_ref = build_global_ref(&name, &[]);
     let ns = params.iris.namespace.clone();
 
     // Fetch entries using iris_global list action via execute_via_generator
     let limit = params.count.clamp(1, 100);
+    // splice-ok: global_ref is ^ plus a name validate_global_name accepted above
     let code = format!(
         r#"Set gRef="{global_ref}"
 Set cnt=0
@@ -170,8 +178,14 @@ pub async fn global_kill_impl(
     params: GlobalKillParams,
     confirm_tokens: &tokio::sync::Mutex<std::collections::HashMap<String, ConfirmEntry>>,
 ) -> Result<CallToolResult, McpError> {
-    use crate::tools::global::normalize_global_name;
+    use crate::tools::global::{normalize_global_name, validate_global_name};
     let name = normalize_global_name(&params.global);
+    if let Err(e) = validate_global_name(&name) {
+        return err_json(
+            "INVALID_GLOBAL_NAME",
+            e["message"].as_str().unwrap_or("invalid global name"),
+        );
+    }
 
     // Token validation
     let entry = {
@@ -545,10 +559,11 @@ pub fn sysperf_profile_or_default(profile: Option<&str>) -> Result<String, Strin
 /// `Write` lands nowhere and the tool sees an empty result with a residual
 /// `<NAMESPACE>...^%SYS.ProcessQuery` in `$ZERROR` — even though the run started fine.
 pub fn sysperf_start_code(profile: &str) -> String {
+    let profile_lit = crate::objectscript::os_lit_inner(profile);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tRun=$$run^SystemPerformance("{profile}")
+Set tRun=$$run^SystemPerformance("{profile_lit}")
 Use io
 Write tRun"#
     )
@@ -556,10 +571,11 @@ Write tRun"#
 
 /// ObjectScript for `mode=status`. Same device dance as [`sysperf_start_code`].
 pub fn sysperf_status_code(run_id: &str) -> String {
+    let run_id_lit = crate::objectscript::os_lit_inner(run_id);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tWait=$$waittime^SystemPerformance("{run_id}")
+Set tWait=$$waittime^SystemPerformance("{run_id_lit}")
 Use io
 Write tWait"#
     )
@@ -759,21 +775,24 @@ pub fn sysperf_add_profile_code(
     interval_seconds: i64,
     sample_count: i64,
 ) -> String {
+    let name_lit = crate::objectscript::os_lit_inner(name);
+    let description_lit = crate::objectscript::os_lit_inner(description);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tR=$$addprofile^SystemPerformance("{name}","{description}",{interval_seconds},{sample_count})
+Set tR=$$addprofile^SystemPerformance("{name_lit}","{description_lit}",{interval_seconds},{sample_count})
 Use io
-Write $D(^IRIS.SystemPerformance("profile","{name}")),"|",tR"#
+Write $D(^IRIS.SystemPerformance("profile","{name_lit}")),"|",tR"#
     )
 }
 
 /// ObjectScript for `mode=delete_profile`.
 pub fn sysperf_delete_profile_code(name: &str) -> String {
+    let name_lit = crate::objectscript::os_lit_inner(name);
     format!(
         r#"ZN "%SYS"
 Set io=$IO
-Set tR=$$delprofile^SystemPerformance("{name}")
+Set tR=$$delprofile^SystemPerformance("{name_lit}")
 Use io
 Write tR"#
     )
@@ -859,9 +878,10 @@ fn nullable(s: &str) -> serde_json::Value {
 ///
 /// An empty `run_id` resolves to the newest completed run.
 pub fn sysperf_report_code(run_id: &str) -> String {
+    let run_id_lit = crate::objectscript::os_lit_inner(run_id);
     format!(
         r#"ZN "%SYS"
-Set rid="{run_id}"
+Set rid="{run_id_lit}"
 If rid="" Set rid=$O(^IRIS.SystemPerformance("history",""),-1)
 Set node=$G(^IRIS.SystemPerformance("history",rid))
 Set dir=$P(node,"^",2)
@@ -1298,6 +1318,40 @@ Write tMember,"|",tName,"|",tType,"|",tPrimary"#;
 
 // ── iris_mirror_add_async_impl (097) ─────────────────────────────────────────
 
+/// The ObjectScript for `iris_admin action=mirror_add_async`. The names go into literals and are
+/// escaped for them (137); the port and member type are numbers.
+pub fn build_mirror_add_async_code(
+    mirror_name: &str,
+    primary_host: &str,
+    primary_port: u16,
+    instance_name: &str,
+    async_member_type: u8,
+) -> String {
+    let mirror_name_lit = crate::objectscript::os_lit_inner(mirror_name);
+    let primary_host_lit = crate::objectscript::os_lit_inner(primary_host);
+    let instance_name_lit = crate::objectscript::os_lit_inner(instance_name);
+    format!(
+        r#"ZN "%SYS"
+Set tMember=##class(%SYSTEM.Mirror).IsMember()
+If tMember'=0 {{
+  Write "ALREADY_MEMBER|",##class(%SYSTEM.Mirror).GetMirrorNames(),!
+  Quit
+}}
+Set tLocalInfo="",tSSLInfo=""
+; JoinMirrorAsAsyncMember opens sockets to the primary and can leave the current device pointed at
+; one of them. The generator captures output by making a temp file the current device, so a moved
+; $IO sends every Write below into the void and the caller sees an empty success. Restore it.
+Set tIO=$IO
+Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name_lit}","","{instance_name_lit}","{primary_host_lit}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
+Use tIO
+If $$$ISERR(tSC) {{
+  Write "ERROR:",$System.Status.GetErrorText(tSC),!
+}} Else {{
+  Write "OK",!
+}}"#
+    )
+}
+
 pub async fn iris_mirror_add_async_impl(
     iris: Option<&IrisConnection>,
     client: &reqwest::Client,
@@ -1317,25 +1371,12 @@ pub async fn iris_mirror_add_async_impl(
             }))
         }
     };
-    let code = format!(
-        r#"ZN "%SYS"
-Set tMember=##class(%SYSTEM.Mirror).IsMember()
-If tMember'=0 {{
-  Write "ALREADY_MEMBER|",##class(%SYSTEM.Mirror).GetMirrorNames(),!
-  Quit
-}}
-Set tLocalInfo="",tSSLInfo=""
-; JoinMirrorAsAsyncMember opens sockets to the primary and can leave the current device pointed at
-; one of them. The generator captures output by making a temp file the current device, so a moved
-; $IO sends every Write below into the void and the caller sees an empty success. Restore it.
-Set tIO=$IO
-Set tSC=##class(SYS.Mirror).JoinMirrorAsAsyncMember("{mirror_name}","","{instance_name}","{primary_host}",{primary_port},{async_member_type},.tLocalInfo,.tSSLInfo)
-Use tIO
-If $$$ISERR(tSC) {{
-  Write "ERROR:",$System.Status.GetErrorText(tSC),!
-}} Else {{
-  Write "OK",!
-}}"#
+    let code = build_mirror_add_async_code(
+        mirror_name,
+        primary_host,
+        primary_port,
+        instance_name,
+        async_member_type,
     );
     match iris.execute_via_generator(&code, "%SYS", client).await {
         Ok(out) => {
@@ -1482,17 +1523,15 @@ pub fn parse_max_size_mb(s: &str) -> Option<i64> {
 
 // ── iris_namespace_create (T084) — gated in call_tool, not here (085) ─────────
 
-pub async fn iris_namespace_create_impl(
-    iris: &IrisConnection,
-    client: &reqwest::Client,
-    name: &str,
-    db_path: Option<&str>,
-) -> Result<CallToolResult, McpError> {
-    let db = db_path.unwrap_or(name);
-    let code = format!(
-        r#"Set props("Name")="{name}"
-Set props("Globals")="{db}"
-Set props("Routines")="{name}"
+/// The ObjectScript for `iris_namespace_create`. The caller checks `name` as a namespace name; both
+/// values are escaped for the literals they land in (137).
+pub fn build_namespace_create_code(name: &str, db: &str) -> String {
+    let name_lit = crate::objectscript::os_lit_inner(name);
+    let db_lit = crate::objectscript::os_lit_inner(db);
+    format!(
+        r#"Set props("Name")="{name_lit}"
+Set props("Globals")="{db_lit}"
+Set props("Routines")="{name_lit}"
 ; CreateOne edits the CPF, which it does by opening the file — and that leaves the current device
 ; on the CPF, not on the generator's capture file. Every Write below then went nowhere and
 ; namespace creation reported success with no output to check. Restore $IO first.
@@ -1504,7 +1543,20 @@ If $$$ISERR(tSC) {{
 }} Else {{
   Write "CREATED",!
 }}"#
-    );
+    )
+}
+
+pub async fn iris_namespace_create_impl(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    name: &str,
+    db_path: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    let db = db_path.unwrap_or(name);
+    if let Err(e) = crate::objectscript::validate_namespace(name) {
+        return crate::tools::err_result(e);
+    }
+    let code = build_namespace_create_code(name, db);
     match iris.execute_via_generator(&code, "%SYS", client).await {
         Ok(out) => {
             let out = out.trim();
@@ -1531,8 +1583,9 @@ pub async fn iris_database_stats_impl(
 ) -> Result<CallToolResult, McpError> {
     // Use SYS.Database:List and augment with GetFreeSpace for specific DB or all.
     let code = if let Some(dir) = db {
+        let dir = os_str_expr(dir);
         format!(
-            r#"Set dir="{dir}"
+            r#"Set dir={dir}
 Set tSC=##class(SYS.Database).GetFreeSpace(dir,.free,.blocks)
 If $$$ISERR(tSC) {{
   Write "ERROR:"_$System.Status.GetErrorText(tSC),!
@@ -1593,11 +1646,16 @@ pub async fn journal_search_impl(
     max_entries: u32,
 ) -> Result<CallToolResult, McpError> {
     let limit = max_entries.clamp(1, 500);
+    for bound in [start, end].into_iter().flatten() {
+        if let Err(e) = validate_timestamp(bound) {
+            return crate::tools::err_result(e);
+        }
+    }
     let start_filter = start
-        .map(|s| format!("If ts<\"{s}\" Continue"))
+        .map(|s| format!("If ts<{} Continue", os_str_expr(s)))
         .unwrap_or_default();
     let end_filter = end
-        .map(|e| format!("If ts>\"{e}\" Continue"))
+        .map(|e| format!("If ts>{} Continue", os_str_expr(e)))
         .unwrap_or_default();
     let global_filter = global_pattern
         .map(|p| {
@@ -1607,8 +1665,8 @@ pub async fn journal_search_impl(
             // Gating on TypeName="SetKillRecord" made this `If` permanently false, so the
             // filter below never ran and every record passed through unfiltered.
             format!(
-                "If $classname(rec)[\"SetKillRecord\" {{ If rec.GlobalReference'[\"{}\" Continue }}",
-                p.replace('"', "")
+                "If $classname(rec)[\"SetKillRecord\" {{ If rec.GlobalReference'[{} Continue }}",
+                os_str_expr(p)
             )
         })
         .unwrap_or_default();
@@ -1746,12 +1804,12 @@ pub async fn stream_inspect_impl(
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
     // Strip leading/trailing whitespace and extract numeric id
-    let id = oid.trim();
+    let id = os_str_expr(oid.trim());
     let code = format!(
-        r#"Set stream=##class(%Stream.GlobalCharacter).%OpenId("{id}")
+        r#"Set stream=##class(%Stream.GlobalCharacter).%OpenId({id})
 If stream="" {{
   // Try binary
-  Set stream=##class(%Stream.GlobalBinary).%OpenId("{id}")
+  Set stream=##class(%Stream.GlobalBinary).%OpenId({id})
   If stream="" {{ Write "ERROR:STREAM_NOT_FOUND",! Quit }}
   Set isText=0
 }} Else {{
@@ -2026,10 +2084,12 @@ pub async fn hl7_schema_inspect_impl(
         return err_json(ERR_HL7_NOT_AVAILABLE, "EnsLib.HL7.Schema is not available.");
     }
 
+    let schema_e = os_str_expr(schema);
     let seg_code = if let Some(seg) = segment {
+        let seg = os_str_expr(seg);
         format!(
             r#"Set tRS=##class(%ResultSet).%New("EnsLib.HL7.Schema:SegmentStructureElements")
-Set tSC=tRS.Execute("{schema}","{seg}")
+Set tSC=tRS.Execute({schema_e},{seg})
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 While tRS.Next() {{
   Write tRS.Data("FieldName"),"|",tRS.Data("Description"),!
@@ -2038,7 +2098,7 @@ While tRS.Next() {{
     } else {
         format!(
             r#"Set tRS=##class(%ResultSet).%New("EnsLib.HL7.Schema:MessageStructures")
-Set tSC=tRS.Execute("{schema}")
+Set tSC=tRS.Execute({schema_e})
 If $$$ISERR(tSC) {{ Write "ERROR:"_$System.Status.GetErrorText(tSC) Quit }}
 While tRS.Next() {{
   Write tRS.Data("StructureName"),!
@@ -2117,6 +2177,9 @@ pub async fn mermaid_class_impl(
     depth: u32,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
+    if let Err(e) = validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
     let depth = depth.clamp(1, 5);
     // Walk superclass chain up to depth levels
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2133,10 +2196,11 @@ pub async fn mermaid_class_impl(
                 continue;
             }
             visited.insert(cls.clone());
-            let escaped = cls.replace('"', "");
-            let sql =
-                format!("SELECT Name, Super FROM %Dictionary.CompiledClass WHERE Name='{escaped}'");
-            if let Ok(resp) = iris.query(&sql, vec![], namespace, client).await {
+            let sql = "SELECT Name, Super FROM %Dictionary.CompiledClass WHERE Name = ?";
+            if let Ok(resp) = iris
+                .query(sql, vec![serde_json::json!(cls)], namespace, client)
+                .await
+            {
                 let rows = resp["result"]["content"]
                     .as_array()
                     .cloned()
@@ -2175,6 +2239,54 @@ pub async fn mermaid_class_impl(
     }))
 }
 
+/// A Mermaid node ID for any text: letters, digits and `_` only, not starting with a digit, and
+/// unique within `taken`. Item names such as `From DEMO LabService ADT` hold spaces, which a node ID
+/// cannot (#144); the real name stays in the label.
+fn mermaid_id(text: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    let mut id: String = text
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    if id.is_empty() || id.starts_with(|c: char| c.is_ascii_digit()) {
+        id.insert(0, 'n');
+    }
+    let mut candidate = id.clone();
+    let mut n = 2;
+    while !taken.insert(candidate.clone()) {
+        candidate = format!("{id}_{n}");
+        n += 1;
+    }
+    candidate
+}
+
+/// Mermaid escapes a quote inside a label as `#quot;`.
+fn mermaid_label(text: &str) -> String {
+    text.replace('"', "#quot;")
+}
+
+/// The flowchart `mermaid_production` returns: the production, then one node per item with its
+/// name and class as the label, disabled items styled `:::disabled`.
+pub fn build_production_diagram(production: &str, items: &[(String, String, bool)]) -> String {
+    let mut taken = std::collections::HashSet::new();
+    let prod_id = mermaid_id(production, &mut taken);
+    let mut diagram = "flowchart TD\n".to_string();
+    diagram.push_str(&format!(
+        "    {prod_id}[\"{}\"]\n",
+        mermaid_label(production)
+    ));
+    for (name, class, enabled) in items {
+        let id = mermaid_id(name, &mut taken);
+        let style = if *enabled { "" } else { ":::disabled" };
+        diagram.push_str(&format!(
+            "    {id}[\"{}\\n{}\"]{style}\n",
+            mermaid_label(name),
+            mermaid_label(class)
+        ));
+        diagram.push_str(&format!("    {prod_id} --> {id}\n"));
+    }
+    diagram
+}
+
 // ── mermaid_production (T103) ─────────────────────────────────────────────────
 
 pub async fn mermaid_production_impl(
@@ -2183,36 +2295,33 @@ pub async fn mermaid_production_impl(
     production: &str,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
-    let escaped = production.replace('"', "");
-    let sql = format!(
-        "SELECT Name, ClassName, Category, Enabled FROM Ens_Config.Item WHERE Production='{escaped}' ORDER BY Category, Name"
-    );
-    match iris.query(&sql, vec![], namespace, client).await {
+    if let Err(e) = validate_class_name(production) {
+        return crate::tools::err_result(e);
+    }
+    let sql =
+        "SELECT Name, ClassName, Category, Enabled FROM Ens_Config.Item WHERE Production = ? \
+               ORDER BY Category, Name";
+    match iris
+        .query(sql, vec![serde_json::json!(production)], namespace, client)
+        .await
+    {
         Ok(resp) => {
             let rows = resp["result"]["content"]
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
 
-            let mut diagram = "flowchart TD\n".to_string();
-            let safe_prod = production.replace(['.', '%', '-'], "_");
-            diagram.push_str(&format!("    {}[\"{}\"]\n", safe_prod, production));
-
-            for row in &rows {
-                let name = row["Name"]
-                    .as_str()
-                    .unwrap_or("")
-                    .replace(['.', '%', '-'], "_");
-                let class = row["ClassName"].as_str().unwrap_or("");
-                let _category = row["Category"].as_str().unwrap_or("");
-                let enabled = row["Enabled"].as_str().unwrap_or("1") != "0";
-                let style = if enabled { "" } else { ":::disabled" };
-                diagram.push_str(&format!(
-                    "    {}[\"{}\\n{}\"]{}  \n",
-                    name, name, class, style
-                ));
-                diagram.push_str(&format!("    {} --> {}\n", safe_prod, name));
-            }
+            let items: Vec<(String, String, bool)> = rows
+                .iter()
+                .map(|row| {
+                    (
+                        row["Name"].as_str().unwrap_or("").to_string(),
+                        row["ClassName"].as_str().unwrap_or("").to_string(),
+                        row["Enabled"].as_str().unwrap_or("1") != "0",
+                    )
+                })
+                .collect();
+            let diagram = build_production_diagram(production, &items);
 
             ok_json(serde_json::json!({
                 "success": true,
@@ -2233,11 +2342,15 @@ pub async fn resolve_storage_impl(
     class: &str,
     namespace: &str,
 ) -> Result<CallToolResult, McpError> {
-    let escaped = class.replace('"', "");
-    let sql = format!(
-        "SELECT Name, Type, DataLocation, IdLocation, IndexLocation FROM %Dictionary.CompiledStorage WHERE parent='{escaped}'"
-    );
-    match iris.query(&sql, vec![], namespace, client).await {
+    if let Err(e) = validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
+    let sql = "SELECT Name, Type, DataLocation, IdLocation, IndexLocation \
+               FROM %Dictionary.CompiledStorage WHERE parent = ?";
+    match iris
+        .query(sql, vec![serde_json::json!(class)], namespace, client)
+        .await
+    {
         Ok(resp) => {
             let rows = resp["result"]["content"]
                 .as_array()

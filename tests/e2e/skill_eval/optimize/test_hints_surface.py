@@ -19,9 +19,13 @@ def _rule(rid):
     return next(r for r in hs.load_rules() if r.id == rid)
 
 
-def test_load_rules_reads_the_seven_shipped_rules():
+def test_load_rules_reads_every_shipped_rule():
     rules = hs.load_rules()
-    assert len(rules) == 7
+    # Count against the file, not a number: the callback hints added after 1.5.0 took it from 7 to
+    # 11 and a hard-coded 7 went red without anything being wrong.
+    with open(hs.HINTS_TOML, "rb") as f:
+        shipped = tomllib.load(f)
+    assert len(rules) == sum(len(v) for v in shipped.values() if isinstance(v, list)) >= 7
     assert {r.id for r in rules} >= {"sys_only_table", "nonstandard_insert"}
     assert all(r.text and r.skill and r.section for r in rules)
 
@@ -128,4 +132,7 @@ def test_load_items_takes_live_positives_with_their_skill():
         assert it["rule"] in rules
         assert it["skill"] == rules[it["rule"]].skill
         assert set(it["vars"]) == hs.placeholders(rules[it["rule"]].text)
-    assert {it["rule"] for it in items} == set(rules)
+    # Every rule the corpus can hold has a live capture; the ones it cannot are named, and named
+    # only if they exist, so a typo in the list does not hide a rule.
+    assert hs.NOT_REPLAYED <= set(rules)
+    assert {it["rule"] for it in items} == set(rules) - hs.NOT_REPLAYED

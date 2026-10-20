@@ -1,0 +1,122 @@
+id: SKILL-53
+prompt: |
+  The unit test class Bench53.CalcTest in the BENCHMARK namespace defines four test methods, one for
+  each of Add, Sub, Mul and Div in Bench53.Calc. When it is run only two of them show up in the
+  results, and both pass. Make all four run under %UnitTest, and fix Bench53.Calc if any of them
+  shows it is wrong. Leave both classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-unit-test
+fixtures:
+- name: Bench53.Calc
+  content: |
+    Class Bench53.Calc Extends %RegisteredObject
+    {
+
+    ClassMethod Add(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA + pB
+    }
+
+    ClassMethod Sub(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA - pB
+    }
+
+    ClassMethod Mul(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA + pB
+    }
+
+    ClassMethod Div(pA As %Numeric, pB As %Numeric) As %Numeric
+    {
+        Quit pA / pB
+    }
+
+    }
+- name: Bench53.CalcTest
+  content: |
+    Class Bench53.CalcTest Extends %UnitTest.TestCase
+    {
+
+    Method TestAdd()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Add(2, 3), 5, "2 + 3")
+    }
+
+    Method testSub()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Sub(5, 3), 2, "5 - 3")
+    }
+
+    Method MulTest()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Mul(4, 3), 12, "4 * 3")
+    }
+
+    Method TestDiv()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Div(7, 2), 3.5, "7 / 2")
+    }
+
+    }
+check: |-
+  set io=$io try { set ok=0 if ((##class(Bench53.Calc).Add(2,3)=5)&&(##class(Bench53.Calc).Sub(5,3)=2)&&(##class(Bench53.Calc).Mul(4,3)=12)&&(##class(Bench53.Calc).Div(7,2)=3.5)) { set root="/tmp/ut52/" do ##class(%File).CreateDirectoryChain(root_"Bench53/") set sc=$system.OBJ.ExportUDL("Bench53.CalcTest.cls",root_"Bench53/CalcTest.cls") set ^UnitTestRoot=root open "/dev/null":"W" use "/dev/null" do ##class(%UnitTest.Manager).RunTest("Bench53","/noload/nodelete") use io close "/dev/null" set idx=^UnitTest.Result,su=$order(^UnitTest.Result(idx,"")) set cn=0,cp=0,ca=999999,cs=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Bench53.CalcTest",m)) quit:m=""  set cn=cn+1,cs=cs_m_"," if +$list(^UnitTest.Result(idx,su,"Bench53.CalcTest",m),1) { set cp=cp+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Bench53.CalcTest",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Bench53.CalcTest",m,n),2),1,6)="Assert" { set na=na+1 } } if na<ca { set ca=na } } set ok=((cn=4)&&(cp=4)&&(ca>=1)) } } catch { use io try { close "/dev/null" } catch { } set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+- name: Bench53.Calc
+  content: |
+    Class Bench53.Calc Extends %RegisteredObject
+    {
+
+    ClassMethod Add(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA + pB
+    }
+
+    ClassMethod Sub(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA - pB
+    }
+
+    ClassMethod Mul(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA * pB
+    }
+
+    ClassMethod Div(pA As %Numeric, pB As %Numeric) As %Numeric
+    {
+        Quit pA / pB
+    }
+
+    }
+- name: Bench53.CalcTest
+  content: |
+    Class Bench53.CalcTest Extends %UnitTest.TestCase
+    {
+
+    Method TestAdd()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Add(2, 3), 5, "2 + 3")
+    }
+
+    Method TestSub()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Sub(5, 3), 2, "5 - 3")
+    }
+
+    Method TestMul()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Mul(4, 3), 12, "4 * 3")
+    }
+
+    Method TestDiv()
+    {
+        Do $$$AssertEquals(##class(Bench53.Calc).Div(7, 2), 3.5, "7 / 2")
+    }
+
+    }
+tags:
+- unittest
+- naming
+- silent-skip

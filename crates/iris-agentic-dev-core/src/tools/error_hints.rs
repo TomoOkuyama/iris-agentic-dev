@@ -42,6 +42,10 @@ const MATCHERS: &[&str] = &[
     "double_quoted_string",
     "reserved_word",
     "nonstandard_insert",
+    "delete_callback_oid",
+    "unknown_persistent_callback",
+    "object_reference_result",
+    "instance_method_on_class",
 ];
 
 /// Packages whose classes resolve only in %SYS (spec 125 research R2). `%SYS.*` and `%SYSTEM.*`
@@ -297,4 +301,114 @@ pub fn runtime_error_hint(output: &str, namespace: &str) -> Option<Hint> {
         "sys_only_class",
         vec![("class", class.to_string())],
     ))
+}
+
+/// The hint for the compiler output of one class (`console` lines and error texts), if a rule matches.
+///
+/// `%OnDelete` and `%OnAfterDelete` must be class methods whose argument is an `%ObjectIdentity`, a
+/// `$LISTBUILD(id, class)`. An agent that reads either signature error fixes the signature and then
+/// uses the argument as the id, which compiles and kills the wrong node (CORPUS-40: five of six
+/// sessions). The error is the one moment the type is on screen, so the hint goes there.
+pub fn compile_error_hint(lines: &[String]) -> Option<Hint> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = re(
+        r"Keyword signature error in [\w.]+:Method:(%On(?:After)?Delete), keyword '(?:ClassMethod|method argument/s signature)' must be",
+        &RE,
+    );
+    let method = lines.iter().find_map(|l| re.captures(l))?[1].to_string();
+    Some(Hint::new("delete_callback_oid", vec![("method", method)]))
+}
+
+/// Every `%On*` method `%Library.Persistent` defines or inherits, from `%Dictionary.CompiledMethod`
+/// on 2026.2. A live test compares this list with the connected instance, so it cannot drift.
+pub const KNOWN_CALLBACKS: &[&str] = &[
+    "%OnAddToSaveSet",
+    "%OnAfterBuildIndices",
+    "%OnAfterDelete",
+    "%OnAfterPurgeIndices",
+    "%OnAfterSave",
+    "%OnBeforeAddToSync",
+    "%OnBeforeBuildIndices",
+    "%OnBeforePurgeIndices",
+    "%OnBeforeSave",
+    "%OnClose",
+    "%OnConstructClone",
+    "%OnDelete",
+    "%OnDeleteFinally",
+    "%OnDetermineClass",
+    "%OnJournalObject",
+    "%OnNew",
+    "%OnOpen",
+    "%OnOpenFinally",
+    "%OnReload",
+    "%OnRollBack",
+    "%OnSaveFinally",
+    "%OnValidateObject",
+];
+
+/// The hint for class source that compiled, if a rule matches.
+///
+/// IRIS calls a `%Persistent` callback by name, so a method named `%OnBeforeDelete` or
+/// `%OnAfterRemove` compiles clean and never runs. Nothing in the compiler output says so, which is
+/// why this reads the source (CORPUS-40 re-runs: three of nine with-skills sessions invented one and
+/// reported success). Only a class that extends `%Persistent` directly, with at most the mixins that
+/// define no `%On*` method, is judged: another superclass may define the name.
+pub fn compiled_source_hint(source: &str) -> Option<Hint> {
+    static EXTENDS: OnceLock<Regex> = OnceLock::new();
+    static METHOD: OnceLock<Regex> = OnceLock::new();
+    let extends = re(
+        r"(?m)^\s*Class\s+[\w.%]+\s+Extends\s+\(?\s*(?:%Library\.)?%?Persistent\b\s*(?:,\s*(?:%Library\.Populate|%Populate|%XML\.Adaptor|%JSON\.Adaptor)\s*)*\)?",
+        &EXTENDS,
+    );
+    if !extends.is_match(source) {
+        return None;
+    }
+    let method = re(r"(?m)^\s*(?:Class)?Method\s+(%On\w+)", &METHOD);
+    let name = method
+        .captures_iter(source)
+        .map(|c| c[1].to_string())
+        .find(|m| !KNOWN_CALLBACKS.contains(&m.as_str()))?;
+    Some(Hint::new(
+        "unknown_persistent_callback",
+        vec![("method", name)],
+    ))
+}
+
+/// Instance methods an agent calls on a class name after `%New`. Each exists on an object and
+/// not on the class, so `##class(X).%Save()` is `<METHOD DOES NOT EXIST>`.
+const INSTANCE_METHODS: &[&str] = &["%Save", "%Id", "%Reload", "%Close", "%IsModified"];
+
+/// The hint for one `iris_execute_method` call: `outcome` is the return value of a call that
+/// succeeded, or the error text of one that failed.
+///
+/// Every call runs in a new process, so the object `%New` returns is gone before the next call
+/// can use it. An agent that cannot see that tries `%Save`, `%Id`, `%IdKeyDelete` and the rest
+/// (CORPUS-40: 48 calls, 4 misses, 16 `%New`s, no row ever saved).
+pub fn execute_method_hint(class: &str, method: &str, outcome: &str) -> Option<Hint> {
+    static MISS: OnceLock<Regex> = OnceLock::new();
+    let outcome = outcome.trim();
+    // An OREF is `<number>@<class>`; requiring the called class keeps a plain string that happens
+    // to contain an `@` from matching.
+    let is_oref = outcome
+        .strip_suffix(&format!("@{class}"))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    if is_oref {
+        return Some(Hint::new(
+            "object_reference_result",
+            vec![("ref", outcome.to_string()), ("class", class.to_string())],
+        ));
+    }
+    let missing = re(r"<METHOD DOES NOT EXIST>.* (%\w+),[\w.%]+$", &MISS)
+        .captures(outcome)?
+        .get(1)?
+        .as_str();
+    (missing == method && INSTANCE_METHODS.contains(&missing)).then(|| {
+        Hint::new(
+            "instance_method_on_class",
+            vec![
+                ("method", missing.to_string()),
+                ("class", class.to_string()),
+            ],
+        )
+    })
 }

@@ -742,7 +742,7 @@ impl IrisConnection {
             // #56: use %Library.File.TempFilename() for platform-portable temp path.
             "  Set tmpfile = ##class(%Library.File).TempFilename(\"txt\")".into(),
             "  Set savedIO = $IO".into(),
-            "  Open tmpfile:(\"WNS\"):5".into(),
+            "  Open tmpfile:(\"WNS\":/IOT=\"UTF8\"):5".into(),
             "  If '$TEST { Quit \"ERROR: output capture unavailable\" }".into(),
             "  Use tmpfile".into(),
             "  Try {".into(),
@@ -770,6 +770,7 @@ impl IrisConnection {
             // Read captured output from temp file and return it.
             "  Set out = \"\"".into(),
             "  Set stream = ##class(%Stream.FileCharacter).%New()".into(),
+            "  Set stream.TranslateTable = \"UTF8\"".into(),
             "  Set sc = stream.LinkToFile(tmpfile)".into(),
             "  If $$$ISOK(sc) {".into(),
             "    While 'stream.AtEnd { Set out = out _ stream.ReadLine() _ $Char(10) }".into(),
@@ -782,8 +783,10 @@ impl IrisConnection {
             "  If (out=\"\") && (ze'=\"\") && (ze'=\",\") { Set out = \"ERROR($ZERROR): \"_ze_$Char(10) }"
                 .into(),
             // Whatever we captured is partial when the device moved, so refuse the whole
-            // result rather than hand back a plausible-looking fragment.
-            "  If devio'=tmpfile { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" instead of the capture file, so its output was written elsewhere and is lost. Snapshot and restore around the call: Set io=$IO / <call> / Use io\"_$Char(10) }"
+            // result rather than hand back a plausible-looking fragment. Compared without case:
+            // native Windows IRIS gives `$IO` back lower-cased while the temp-file name keeps its
+            // case, and the exact comparison refused every call there from 1.3.2 on (#139).
+            "  If $ZConvert(devio,\"L\")'=$ZConvert(tmpfile,\"L\") { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" instead of the capture file, so its output was written elsewhere and is lost. Snapshot and restore around the call: Set io=$IO / <call> / Use io\"_$Char(10) }"
                 .into(),
             "  Quit out".into(),
             "}".into(),
@@ -892,7 +895,8 @@ impl IrisConnection {
 
         use tokio::io::AsyncWriteExt;
 
-        let remote_cmd = format!("docker exec -i {container} iris session IRIS -U {namespace}");
+        let remote_cmd = build_ssh_remote_command(&container, namespace, ssh_host)
+            .map_err(|e| anyhow::anyhow!(e))?;
         let mut child = tokio::process::Command::new("ssh")
             .args(["-o", "StrictHostKeyChecking=no", ssh_host, &remote_cmd])
             .stdin(std::process::Stdio::piped())
@@ -1295,6 +1299,43 @@ impl Drop for ScratchGuard {
         });
         let _ = worker.join();
     }
+}
+
+/// The command `execute_ssh` hands to the remote shell. The container and namespace are checked
+/// against their own syntax and single-quoted, and a host that starts with `-` is refused, since ssh
+/// reads it as an option (`-oProxyCommand=...` runs a local command). Before this the parts went into
+/// the remote shell unquoted, outside every IRIS gate (137).
+pub fn build_ssh_remote_command(
+    container: &str,
+    namespace: &str,
+    ssh_host: &str,
+) -> Result<String, String> {
+    let container_ok = !container.is_empty()
+        && container
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && container
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    if !container_ok {
+        return Err(format!(
+            "INVALID_CONTAINER: '{container}' is not a container name (letters, digits, _ . -, \
+             starting with a letter or digit)"
+        ));
+    }
+    if let Err(e) = crate::objectscript::validate_namespace(namespace) {
+        return Err(e["message"]
+            .as_str()
+            .unwrap_or("INVALID_NAMESPACE")
+            .to_string());
+    }
+    if ssh_host.is_empty() || ssh_host.starts_with('-') || ssh_host.contains(char::is_whitespace) {
+        return Err(format!("INVALID_SSH_HOST: '{ssh_host}' is not a host name"));
+    }
+    Ok(format!(
+        "docker exec -i '{container}' iris session IRIS -U '{namespace}'"
+    ))
 }
 
 #[cfg(test)]

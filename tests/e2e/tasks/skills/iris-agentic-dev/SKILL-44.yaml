@@ -1,0 +1,56 @@
+id: SKILL-44
+prompt: |
+  Bench44.Child extends Bench44.Base. Replace Bench44.Base on the BENCHMARK namespace with the class in this XML export and leave both classes compiled on the server, so that Bench44.Child.Name() answers with the new text:
+
+  <?xml version="1.0" encoding="UTF8"?>
+  <Export generator="IRIS" version="26">
+  <Class name="Bench44.Base">
+  <Super>%RegisteredObject</Super>
+  <Method name="Name">
+  <ClassMethod>1</ClassMethod>
+  <ReturnType>%String</ReturnType>
+  <Implementation><![CDATA[    Quit "base v2"
+  ]]></Implementation>
+  </Method>
+  </Class>
+  </Export>
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-agentic-dev
+fixtures:
+  - name: Bench44.Base
+    content: |
+      Class Bench44.Base Extends %RegisteredObject
+      {
+
+      ClassMethod Name() As %String
+      {
+          Quit "base v1"
+      }
+
+      }
+  - name: Bench44.Child
+    content: |
+      Class Bench44.Child Extends Bench44.Base
+      {
+
+      }
+check: |
+  try { set ok=(##class(Bench44.Child).Name()="base v2") } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench44.Base
+    content: |
+      <?xml version="1.0" encoding="UTF8"?>
+      <Export generator="IRIS" version="26">
+      <Class name="Bench44.Base">
+      <Super>%RegisteredObject</Super>
+      <Method name="Name">
+      <ClassMethod>1</ClassMethod>
+      <ReturnType>%String</ReturnType>
+      <Implementation><![CDATA[    Quit "base v2"
+      ]]></Implementation>
+      </Method>
+      </Class>
+      </Export>
+tags: [xml, export, subclass]

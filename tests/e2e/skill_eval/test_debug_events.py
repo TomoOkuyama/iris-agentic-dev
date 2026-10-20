@@ -13,7 +13,7 @@ def test_debug_raw_events():
     from tests.e2e.isolated_env import IsolatedEnv
     from tests.e2e.opencode_runner import collect_events
 
-    model = "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    model = "amazon-bedrock/us.anthropic.claude-sonnet-4-6"
     key = os.environ["OPENAI_API_KEY"]
     prompt = "Write an ObjectScript ClassMethod StartAndVerify(pProductionClass As %String) As %Status that starts the production using ##class(Ens.Director).StartProduction, checks if running using GetProductionState, returns $$$OK on success."
 

@@ -552,11 +552,11 @@ async fn write_with_scm(
     // returns action=1 ("needs confirmation dialog"), which made every chained surgical edit
     // (insert/delete_lines on an already-checked-out doc) re-elicit "requires checkout" forever.
     // In that case emit a PROCEED sentinel and write directly.
-    let n = name.replace('"', "\"\""); // ObjectScript double-quote escaping
+    let n_lit = crate::objectscript::os_lit_inner(name);
     let scm_check = format!(
-        "set scmClass=##class(%Studio.SourceControl.Interface).SourceControlClassGet() if scmClass=\"\" {{ write \"NO_SCM\" }} else {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{u}\",\"{p}\",.c,.f,.o) set obj=$get(%SourceControl) if '$IsObject(obj) {{ write \"NO_SCM\" }} else {{ set hasUndoCheckout=0 try {{ set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") set sc=rset.Execute(\"%SourceMenu\",\"{n}\",\"\") while rset.Next() {{ if rset.GetData(2)&&(rset.GetData(1)=\"%UndoCheckout\") {{ set hasUndoCheckout=1 }} }} }} catch {{}} if hasUndoCheckout {{ write \"PROCEED|\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=obj.UserAction(0,\"%SourceMenu,%CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }} }} }}",
-        u = iris.username.replace('"', "\"\""),
-        p = iris.password.replace('"', "\"\""),
+        "set scmClass=##class(%Studio.SourceControl.Interface).SourceControlClassGet() if scmClass=\"\" {{ write \"NO_SCM\" }} else {{ set sc=##class(%Studio.SourceControl.Interface).SourceControlCreate(\"{u_lit}\",\"{p_lit}\",.c,.f,.o) set obj=$get(%SourceControl) if '$IsObject(obj) {{ write \"NO_SCM\" }} else {{ set hasUndoCheckout=0 try {{ set rset=##class(%ResultSet).%New(\"%Studio.SourceControl.Interface:MenuItems\") set sc=rset.Execute(\"%SourceMenu\",\"{n_lit}\",\"\") while rset.Next() {{ if rset.GetData(2)&&(rset.GetData(1)=\"%UndoCheckout\") {{ set hasUndoCheckout=1 }} }} }} catch {{}} if hasUndoCheckout {{ write \"PROCEED|\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=obj.UserAction(0,\"%SourceMenu,%CheckOut\",\"{n_lit}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }} }} }}",
+        u_lit = crate::objectscript::os_lit_inner(&iris.username),
+        p_lit = crate::objectscript::os_lit_inner(&iris.password),
     );
     // Whether the probe told us the doc is already writable by us (PROCEED / already checked out).
     // Only such a "we hold it" outcome is safe to cache — NOT NO_SCM (no source control at all),
@@ -926,7 +926,7 @@ async fn do_write(
             None
         };
 
-        return ok_json(serde_json::json!({
+        let mut resp = serde_json::json!({
             "success": compile_ok,
             "name": name,
             "open_uri": open_uri,
@@ -934,7 +934,16 @@ async fn do_write(
             "compile_errors": compile_errors,
             "compile_console": compile_console,
             "content": content,
-        }));
+        });
+        if compile_ok {
+            super::add_source_hint(&mut resp, content.as_deref());
+        } else {
+            super::add_compile_hint(
+                &mut resp,
+                &[compile_errors.as_slice(), compile_console.as_slice()].concat(),
+            );
+        }
+        return ok_json(resp);
     }
 
     ok_json(serde_json::json!({"success": true, "name": name, "open_uri": open_uri}))
@@ -1639,6 +1648,9 @@ async fn handle_compiled(
         }
     }
 
+    if let Err(e) = crate::objectscript::validate_routine_name(&name) {
+        return crate::tools::err_result(e);
+    }
     let routine = match derive_routine_name(&name) {
         Some(r) => r,
         None => {
@@ -1649,8 +1661,9 @@ async fn handle_compiled(
         }
     };
 
+    let routine_e = crate::objectscript::os_str_expr(&format!("{routine}.INT"));
     let code = format!(
-        " Set rtn = ##class(%Library.Routine).%OpenId(\"{routine}.INT\")\n If rtn = \"\" {{ Write \"NOT_COMPILED\",$C(10)  Quit }}\n Do rtn.Rewind()\n While 'rtn.AtEnd {{ Write rtn.ReadLine(),$C(10) }}\n Write \"DONE\",$C(10)"
+        " Set rtn = ##class(%Library.Routine).%OpenId({routine_e})\n If rtn = \"\" {{ Write \"NOT_COMPILED\",$C(10)  Quit }}\n Do rtn.Rewind()\n While 'rtn.AtEnd {{ Write rtn.ReadLine(),$C(10) }}\n Write \"DONE\",$C(10)"
     );
 
     let output = match iris.execute_via_generator(&code, ns, client).await {
@@ -1870,11 +1883,20 @@ pub async fn handle_iris_execute_method(
         }
     }
 
-    // Build CSV args with ObjectScript double-quote escaping
+    // The denylist above caught three characters; `X).Delete("Y") Set z=##class(X` has none of
+    // them and named a second call. Both are spliced bare, so both must be names (137).
+    if let Err(e) = crate::objectscript::validate_class_name(class) {
+        return crate::tools::err_result(e);
+    }
+    if let Err(e) = crate::objectscript::validate_method_name(method) {
+        return crate::tools::err_result(e);
+    }
+
+    // Arguments are values: os_str_expr also keeps a newline from ending the line of code.
     let args_csv: String = p
         .args
         .iter()
-        .map(|a| format!("\"{}\"", a.replace('"', "\"\"")))
+        .map(|a| crate::objectscript::os_str_expr(a))
         .collect::<Vec<_>>()
         .join(",");
 
@@ -1898,14 +1920,30 @@ pub async fn handle_iris_execute_method(
     // Check for generator-level errors (Catch block writes "ERROR: ...")
     let trimmed = output.trim();
     if let Some(stripped) = crate::iris::connection::generator_error_message(trimmed) {
-        return err_json("IRIS_EXECUTE_ERROR", stripped.trim());
+        let mut v = serde_json::json!({
+            "success": false,
+            "error_code": "IRIS_EXECUTE_ERROR",
+            "error": stripped.trim(),
+        });
+        if let Some(h) = crate::tools::error_hints::execute_method_hint(class, method, stripped) {
+            h.apply(&mut v);
+        }
+        return super::err_result(v);
     }
 
     match method_output(&output) {
-        Ok(return_value) => ok_json(serde_json::json!({
-            "success": true,
-            "return_value": return_value,
-        })),
+        Ok(return_value) => {
+            let mut v = serde_json::json!({
+                "success": true,
+                "return_value": return_value,
+            });
+            if let Some(h) =
+                crate::tools::error_hints::execute_method_hint(class, method, &return_value)
+            {
+                h.apply(&mut v);
+            }
+            ok_json(v)
+        }
         Err(text) => err_json(
             "METHOD_RETURNED_ERROR",
             &format!("{class}.{method} returned an error %Status: {text}"),
@@ -1924,6 +1962,7 @@ pub fn execute_method_code(call_expr: &str) -> String {
     format!(
         " Set result = {call_expr}\n \
          Set tIsErr = ($Extract(result,1,2)=\"0 \")&&$ListValid($Extract(result,3,*))\n \
+         // splice-ok: a constant of this module
          Write:tIsErr \"{STATUS_ERROR_MARKER}\",$System.Status.GetErrorText(result),$C(10)\n \
          Write:'tIsErr result,$C(10)"
     )

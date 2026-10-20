@@ -36,7 +36,7 @@ risk, single-run variance, and single-model validation caveats.
 Every skill has a tier, set by `tier:` in its `SKILL.md` frontmatter:
 
 - **core**: the ten skills most ObjectScript work needs. The Claude Code plugin ships these, and a bare `skill install` installs these.
-- **extra**: the other 23. Install them by name or with `--all`. The `iris-agentic-dev` skill lists each one with a line on when to load it, and `skill_describe` reads any of them over MCP without installing anything.
+- **extra**: the other 24. Install them by name or with `--all`. The `iris-agentic-dev` skill lists each one with a line on when to load it, and `skill_describe` reads any of them over MCP without installing anything.
 - **internal**: skills for working on iad itself (today only `opencode-introspect`). No list shows them. Install one by name if you want it.
 
 Install the core skills to Claude Code and OpenCode:
@@ -126,47 +126,48 @@ done
 
 ## Skill inventory
 
-All 34 skills below ship embedded in the binary, at every tier — no download, no IRIS connection, no
+All 35 skills below ship embedded in the binary, at every tier — no download, no IRIS connection, no
 filesystem lookup. This is the whole list. Agents read a short inventory as "these are
 the skills that exist" and reimplement from scratch rather than asking for one that is
 missing from the table, so any skill in the binary belongs here.
 
-| Skill                              | Tier     | What it does                                                                                                  | Benchmark   |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------- | ----------- |
-| `ensemble-production`              | extra    | Interoperability production lifecycle, logs, queues                                                           | domain      |
-| `iris-agentic-dev`                 | core     | Configuring, connecting and troubleshooting this MCP server itself                                            |             |
-| `iris-ai-hub`                      | extra    | AI Hub (`%AI.*`): where the ai-hub-eap docs are, build-first workflow, facts measured on 2026.3.0AI build 139 |             |
-| `iris-connectivity`                | core     | IRIS connection APIs from Python, Java, JDBC, ODBC                                                            | domain      |
-| `iris-container-graceful-shutdown` | extra    | Why `docker stop` leaves a dirty WIJ, and how to stop IRIS so data survives a restart                         |             |
-| `iris-cpf-merge`                   | extra    | Configuring containers via `ISC_CPF_MERGE_FILE` instead of `docker exec`                                      |             |
-| `iris-devtester`                   | extra    | `IRISContainer` factory methods and test fixture patterns                                                     | domain      |
-| `iris-docs`                        | extra    | Fetches live IRIS class reference before implementing any API — eliminates hallucinated methods               |             |
-| `iris-embedded-python`             | extra    | Running Python inside IRIS: the native API, calling Python from ObjectScript                                  |             |
-| `iris-linux-docker`                | extra    | The UID 51773 bind-mount permission failure that crashes IRIS containers on Linux                             |             |
-| `iris-objectscript-eval`           | extra    | Execute/compile/test loop over the MCP tools, with docker exec only as a fallback                             |             |
-| `iris-pgwire`                      | extra    | Connecting to IRIS over the PostgreSQL wire protocol (psycopg3 and other PG clients)                          |             |
-| `iris-product-features`            | extra    | What IRIS actually ships — the features and product boundaries models invent                                  |             |
-| `iris-query-plans`                 | extra    | Reading query plans; stale indexes, `%BuildIndices`, `TUNE TABLE`, outlier selectivity                        |             |
-| `iris-sql`                         | core     | Writing and debugging IRIS SQL: table naming, NULL semantics, `SQLCODE`, DDL quirks                           |             |
-| `iris-vector-ai`                   | extra    | IRIS vector search syntax (HNSW, `VECTOR_COSINE`, `TO_VECTOR`)                                                | domain      |
-| `iris-vscode-objectscript`         | extra    | VS Code ObjectScript setup against a container, including the 52773-vs-1972 trap                              |             |
-| `iris-windows-iis-setup`           | extra    | IIS configuration for a native Windows IRIS so this server can reach Atelier                                  |             |
-| `irishealth-container`             | extra    | IRIS for Health and AI Hub containers: FHIR R4 without ZPM, the enterprise/community web split                |             |
-| `irispython-connector`             | extra    | Python to IRIS over TCP: DB-API, SQLAlchemy, pandas, and the segfault that hits every newcomer                |             |
-| `objectscript-coverage`            | extra    | Measuring ObjectScript line coverage with `iris_coverage`                                                     |             |
-| `objectscript-debugging`           | core     | Maps `.INT` offsets to `.CLS` source lines, reads error logs                                                  |             |
-| `objectscript-fewshot-fixes`       | extra    | Worked Bug → Root Cause → Fix examples for the seven most common ObjectScript mistakes                        |             |
-| `objectscript-guardrails`          | core     | All-in-one hard gate, works without MCP                                                                       | 86% repair  |
-| `objectscript-list-patterns`       | core     | `%List`, `$LISTBUILD`, `$LISTNEXT`, `$LISTTOSTRING` patterns                                                  | 91% repair  |
-| `objectscript-loop-patterns`       | extra    | `For`/`While`, `$Order` iteration, postfix `Quit`, `Return` vs `Quit`                                         | −19% lift   |
-| `objectscript-mac-routines`        | extra    | MAC routine syntax: labels, `#include`, `$ZTRAP`, extrinsic functions                                         |             |
-| `objectscript-navigation`          | extra    | Codebase discovery using MCP introspection tools                                                              | 82% repair  |
-| `objectscript-repair`              | extra    | Coordinated fixes across multiple dependent classes                                                           |             |
-| `objectscript-review`              | core     | Hard-gate checklist: 10 most common AI mistakes in ObjectScript                                               | 100% repair |
-| `objectscript-sql-patterns`        | core     | IRIS SQL quirks: reserved words, SQLCODE, table naming, NULL handling                                         | 100% SQL    |
-| `objectscript-tdd`                 | core     | Compile-test-fix loop for iterative development                                                               |             |
-| `objectscript-unit-test`           | core     | Generates `%UnitTest` scaffolding from live class introspection                                               | 86% repair  |
-| `opencode-introspect`              | internal | Reading and searching opencode session logs out of its SQLite database                                        |             |
+| Skill                              | Tier     | What it does                                                                                                            | Benchmark   |
+| ---------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `ensemble-production`              | extra    | Interoperability production lifecycle, logs, queues                                                                     | domain      |
+| `iris-agentic-dev`                 | core     | Configuring, connecting and troubleshooting this MCP server itself                                                      |             |
+| `iris-ai-hub`                      | extra    | AI Hub (`%AI.*`): where the ai-hub-eap docs are, build-first workflow, facts measured on 2026.3.0AI build 139           |             |
+| `iris-connectivity`                | core     | IRIS connection APIs from Python, Java, JDBC, ODBC                                                                      | domain      |
+| `iris-container-graceful-shutdown` | extra    | Why `docker stop` leaves a dirty WIJ, and how to stop IRIS so data survives a restart                                   |             |
+| `iris-cpf-merge`                   | extra    | Configuring containers via `ISC_CPF_MERGE_FILE` instead of `docker exec`                                                |             |
+| `iris-devtester`                   | extra    | `IRISContainer` factory methods and test fixture patterns                                                               | domain      |
+| `iris-docs`                        | extra    | Fetches live IRIS class reference before implementing any API — eliminates hallucinated methods                         |             |
+| `iris-embedded-python`             | extra    | Running Python inside IRIS: the native API, calling Python from ObjectScript                                            |             |
+| `iris-linux-docker`                | extra    | The UID 51773 bind-mount permission failure that crashes IRIS containers on Linux                                       |             |
+| `iris-mdx`                         | extra    | MDX queries against IRIS BI cubes: discovery with `%DeepSee.Utils`, running through `iris_execute`, 2026.2 `%MDX()` bug |             |
+| `iris-objectscript-eval`           | extra    | Execute/compile/test loop over the MCP tools, with docker exec only as a fallback                                       |             |
+| `iris-pgwire`                      | extra    | Connecting to IRIS over the PostgreSQL wire protocol (psycopg3 and other PG clients)                                    |             |
+| `iris-product-features`            | extra    | What IRIS actually ships — the features and product boundaries models invent                                            |             |
+| `iris-query-plans`                 | extra    | Reading query plans; stale indexes, `%BuildIndices`, `TUNE TABLE`, outlier selectivity                                  |             |
+| `iris-sql`                         | core     | Writing and debugging IRIS SQL: table naming, NULL semantics, `SQLCODE`, DDL quirks                                     |             |
+| `iris-vector-ai`                   | extra    | IRIS vector search syntax (HNSW, `VECTOR_COSINE`, `TO_VECTOR`)                                                          | domain      |
+| `iris-vscode-objectscript`         | extra    | VS Code ObjectScript setup against a container, including the 52773-vs-1972 trap                                        |             |
+| `iris-windows-iis-setup`           | extra    | IIS configuration for a native Windows IRIS so this server can reach Atelier                                            |             |
+| `irishealth-container`             | extra    | IRIS for Health and AI Hub containers: FHIR R4 without ZPM, the enterprise/community web split                          |             |
+| `irispython-connector`             | extra    | Python to IRIS over TCP: DB-API, SQLAlchemy, pandas, and the segfault that hits every newcomer                          |             |
+| `objectscript-coverage`            | extra    | Measuring ObjectScript line coverage with `iris_coverage`                                                               |             |
+| `objectscript-debugging`           | core     | Maps `.INT` offsets to `.CLS` source lines, reads error logs                                                            |             |
+| `objectscript-fewshot-fixes`       | extra    | Worked Bug → Root Cause → Fix examples for the seven most common ObjectScript mistakes                                  |             |
+| `objectscript-guardrails`          | core     | All-in-one hard gate, works without MCP                                                                                 | 86% repair  |
+| `objectscript-list-patterns`       | core     | `%List`, `$LISTBUILD`, `$LISTNEXT`, `$LISTTOSTRING` patterns                                                            | 91% repair  |
+| `objectscript-loop-patterns`       | extra    | `For`/`While`, `$Order` iteration, postfix `Quit`, `Return` vs `Quit`                                                   | −19% lift   |
+| `objectscript-mac-routines`        | extra    | MAC routine syntax: labels, `#include`, `$ZTRAP`, extrinsic functions                                                   |             |
+| `objectscript-navigation`          | extra    | Codebase discovery using MCP introspection tools                                                                        | 82% repair  |
+| `objectscript-repair`              | extra    | Coordinated fixes across multiple dependent classes                                                                     |             |
+| `objectscript-review`              | core     | Hard-gate checklist: 10 most common AI mistakes in ObjectScript                                                         | 100% repair |
+| `objectscript-sql-patterns`        | core     | IRIS SQL quirks: reserved words, SQLCODE, table naming, NULL handling                                                   | 100% SQL    |
+| `objectscript-tdd`                 | core     | Compile-test-fix loop for iterative development                                                                         |             |
+| `objectscript-unit-test`           | core     | Generates `%UnitTest` scaffolding from live class introspection                                                         | 86% repair  |
+| `opencode-introspect`              | internal | Reading and searching opencode session logs out of its SQLite database                                                  |             |
 
 `skills/skills/iris-agentic-dev/nopws-setup/SKILL.md` is a repo reference file, not a
 bundled skill: discovery globs `<skills dir>/*/SKILL.md`, so a file one level deeper is

@@ -1,0 +1,64 @@
+id: SKILL-48
+prompt: |
+  Bench48.Q.NamesIn(pGroup) in the BENCHMARK namespace must return the Name of every Bench48.Item row whose Group is pGroup, as a comma-separated string in Name order, asked through SQL. It returns the string ERR if the query does not run. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: iris-sql
+fixtures:
+  - name: Bench48.Item
+    content: |
+      Class Bench48.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      Property Group As %String;
+
+      }
+  - name: Bench48.Q
+    content: |
+      Class Bench48.Q Extends %RegisteredObject
+      {
+
+      ClassMethod NamesIn(pGroup As %String) As %String
+      {
+          Quit ""
+      }
+
+      }
+check: |
+  try { do ##class(Bench48.Item).%KillExtent() for r="b|g1","a|g1","c|g2" { set o=##class(Bench48.Item).%New() set o.Name=$piece(r,"|",1) set o.Group=$piece(r,"|",2) do o.%Save() kill o } set ok=((##class(Bench48.Q).NamesIn("g1")="a,b")&&(##class(Bench48.Q).NamesIn("g2")="c")&&(##class(Bench48.Q).NamesIn("none")="")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench48.Item
+    content: |
+      Class Bench48.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      Property Group As %String;
+
+      }
+  - name: Bench48.Q
+    content: |
+      Class Bench48.Q Extends %RegisteredObject
+      {
+
+      ClassMethod NamesIn(pGroup As %String) As %String
+      {
+          Set tStmt = ##class(%SQL.Statement).%New()
+          Set tSC = tStmt.%Prepare("SELECT Name FROM Bench48.Item WHERE ""Group"" = ? ORDER BY Name")
+          If $$$ISERR(tSC) {
+              Quit "ERR"
+          }
+          Set tRs = tStmt.%Execute(pGroup)
+          Set tOut = ""
+          While tRs.%Next() {
+              Set tOut = tOut _ $Select(tOut = "": "", 1: ",") _ tRs.%Get("Name")
+          }
+          Quit tOut
+      }
+
+      }
+tags: [sql, reserved-word]

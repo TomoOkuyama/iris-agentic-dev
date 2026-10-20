@@ -1,0 +1,73 @@
+id: SKILL-31
+prompt: |
+  Bench31.Look.Names(pCategory) in the BENCHMARK namespace must return the Name of every
+  Bench31.Item row in the category pCategory that is still active, as a comma-separated string in
+  Name order. A row is active when its ActiveUntil is not set (it never expires) or is a day number on
+  or after today's. Leave the classes compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-sql-patterns
+fixtures:
+  - name: Bench31.Item
+    content: |
+      Class Bench31.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      Property Category As %String;
+
+      /// A $HOROLOG day number, or not set when the row never expires.
+      Property ActiveUntil As %Integer;
+
+      }
+  - name: Bench31.Look
+    content: |
+      Class Bench31.Look Extends %RegisteredObject
+      {
+
+      ClassMethod Names(pCategory As %String) As %String
+      {
+          Quit ""
+      }
+
+      }
+check: |
+  try { do ##class(Bench31.Item).%KillExtent() for n="Ann|c|", "Bob|c|99999", "Cy|c|1", "Di|c|", "Ed|d|99999" { set r=##class(Bench31.Item).%New() set r.Name=$piece(n,"|",1) set r.Category=$piece(n,"|",2) if $piece(n,"|",3)'="" { set r.ActiveUntil=$piece(n,"|",3) } do r.%Save() } set ok=((##class(Bench31.Look).Names("c")="Ann,Bob,Di")&&(##class(Bench31.Look).Names("d")="Ed")&&(##class(Bench31.Look).Names("none")="")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench31.Item
+    content: |
+      Class Bench31.Item Extends %Persistent
+      {
+
+      Property Name As %String;
+
+      Property Category As %String;
+
+      /// A $HOROLOG day number, or not set when the row never expires.
+      Property ActiveUntil As %Integer;
+
+      }
+  - name: Bench31.Look
+    content: |
+      Class Bench31.Look Extends %RegisteredObject
+      {
+
+      ClassMethod Names(pCategory As %String) As %String
+      {
+          Set tStmt = ##class(%SQL.Statement).%New()
+          Set tSC = tStmt.%Prepare("SELECT Name FROM Bench31.Item WHERE Category = ? AND (ActiveUntil IS NULL OR ActiveUntil >= ?) ORDER BY Name")
+          If $$$ISERR(tSC) {
+              Quit ""
+          }
+          Set tRs = tStmt.%Execute(pCategory, +$HOROLOG)
+          Set tOut = ""
+          While tRs.%Next() {
+              Set tOut = tOut _ $Select(tOut = "": "", 1: ",") _ tRs.%Get("Name")
+          }
+          Quit tOut
+      }
+
+      }
+tags: [sql, null-handling, dates]

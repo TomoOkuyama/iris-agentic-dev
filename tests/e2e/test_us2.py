@@ -25,7 +25,7 @@ def test_us2_check_config(openai_api_key, iris_available):
         events = collect_events(
             prompt="Call the check_config tool and tell me if IRIS is connected.",
             env_vars=env.env_vars(),
-            model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            model="amazon-bedrock/us.anthropic.claude-sonnet-4-6",
         )
     assert check_tool_called(
         events, "iris_agentic_dev", "check_config"

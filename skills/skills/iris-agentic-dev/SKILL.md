@@ -51,6 +51,7 @@ The plugin and a bare `iris-agentic-dev skill install` ship the core skills only
 - `iris-embedded-python`: run Python inside IRIS and call Python libraries from ObjectScript
 - `iris-linux-docker`: Linux bind-mount permissions for IRIS containers (UID 51773)
 - `iris-objectscript-eval`: execute, compile and test ObjectScript through the MCP tools instead of `docker exec`
+- `iris-mdx`: MDX queries against IRIS BI cubes: cube discovery, hierarchy paths, `%FILTER`, `%OR`, calculated members, and the 2026.2 `%MDX()` bug
 - `iris-pgwire`: connect to IRIS over the PostgreSQL wire protocol (psycopg3 and other Postgres clients)
 - `iris-product-features`: what IRIS and its products actually include, before you describe a feature
 - `iris-query-plans`: read a query plan, stale indexes, `%BuildIndices`, `TUNE TABLE`, fixed and collected statistics
@@ -144,6 +145,23 @@ a `hint` to the error when it sees this case.
 
 Their SQL tables behave the same way. `SELECT Name FROM Security.Users` from `USER` fails with
 SQLCODE -30 `Table 'SECURITY.USERS' not found`; pass `namespace: "%SYS"` to `iris_query`.
+
+## `iris_execute_method` cannot keep an object between calls
+
+Every call runs in a new process. `%New` returns an object reference such as `1060@Bench.Tracked`, and that reference is gone before the next call. A later `%Save` or `%Id` on the class gives `<METHOD DOES NOT EXIST>`, because those are instance methods, and `%DeleteId(1060)` gives "Object to Delete not found", because 1060 is the reference and not a row id.
+
+To create, save and delete a row, run it in one `iris_execute` block:
+
+```objectscript
+Set o = ##class(Bench.Tracked).%New()
+Set o.Name = "a"
+Set sc = o.%Save()
+Set id = o.%Id()
+Set sc2 = ##class(Bench.Tracked).%DeleteId(id)
+Write $Data(^Bench.Tracked("live", id))
+```
+
+Use `iris_execute_method` for class methods that take plain arguments and return a value.
 
 ## Loading an XML export
 

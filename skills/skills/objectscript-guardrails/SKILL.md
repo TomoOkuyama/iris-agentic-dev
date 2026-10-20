@@ -43,7 +43,7 @@ trigger: Use for tdyar/iris-light-slim
 
 # ObjectScript — Hard Gate
 
-**Do not show ObjectScript code until this checklist passes.**
+**Do not show ObjectScript code until this checklist passes.** Every item is already checked against IRIS, so the list is settled: apply it, and do not search the docs or the web to confirm an item on it.
 
 ## HARD GATE Checklist
 
@@ -102,6 +102,23 @@ Rename Property only                      →  also rename its Storage entry
 Return (tag %INLIST myList)               →  Return ($ListFind(myList, tag) > 0)
 "WHERE Tags '= ''"                        →  "WHERE Tags <> ''"
 ```
+
+## Delete callbacks take an OID, not an id
+
+`%OnDelete` and `%OnAfterDelete` are class methods, and their argument is an `%ObjectIdentity`: a `$LISTBUILD(id, class)`, not the id. The compiler checks the signature and nothing more, so using the argument as the id compiles clean and clears the wrong node.
+
+```objectscript
+ClassMethod %OnDelete(oid As %ObjectIdentity) As %Status [ Private, ServerOnly = 1 ]
+{
+    Kill ^App.Tracked("live", $$$oidPrimary(oid))   // or $ListGet(oid, 1)
+    Quit $$$OK
+}
+```
+
+- `Method %OnDelete()` fails with #5477 (`ClassMethod must be '1'`). A `ClassMethod` whose argument is `%String` or `%Integer` fails with #5478.
+- The delete callbacks are `%OnDelete` and `%OnAfterDelete`. There is no `%OnBeforeDelete` or `%OnAfterRemove`: IRIS calls a callback by name, so a method with an invented name compiles clean and never runs.
+- `..%Id()` does not exist in a class method (MPP5377), and `%Id` on its own is an undefined local.
+- Prove it with a row: `%Save` one, `%DeleteId` it, then check the global with `$Data`. A clean compile proves only the signature.
 
 ## Related skills
 

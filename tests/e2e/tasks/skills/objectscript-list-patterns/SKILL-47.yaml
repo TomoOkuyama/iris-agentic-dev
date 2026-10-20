@@ -1,0 +1,39 @@
+id: SKILL-47
+prompt: |
+  Bench47.Ls.Reverse(pList) in the BENCHMARK namespace is a stub. Make it return a %List with the elements of the %List pList in reverse order. Reversing a list with no elements gives a list with no elements, one whose $ListLength is 0. Leave the class compiled on the server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-list-patterns
+fixtures:
+  - name: Bench47.Ls
+    content: |
+      Class Bench47.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod Reverse(pList As %List) As %List
+      {
+          Quit pList
+      }
+
+      }
+check: |
+  try { set a=##class(Bench47.Ls).Reverse($lb("a","b","c")) set b=##class(Bench47.Ls).Reverse("") set c=##class(Bench47.Ls).Reverse($lb("only")) set ok=(($listlength(a)=3)&&($list(a,1)="c")&&($list(a,3)="a")&&($listlength(b)=0)&&($listlength(c)=1)&&($list(c,1)="only")) } catch { set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+  - name: Bench47.Ls
+    content: |
+      Class Bench47.Ls Extends %RegisteredObject
+      {
+
+      ClassMethod Reverse(pList As %List) As %List
+      {
+          Set tOut = ""
+          Set tPtr = 0
+          While $ListNext(pList, tPtr, tVal) {
+              Set tOut = $ListBuild(tVal) _ tOut
+          }
+          Quit tOut
+      }
+
+      }
+tags: [lists, empty-list]

@@ -435,7 +435,7 @@ def test_timeout_leaves_no_orphaned_processes():
         _fake_opencode_tree(tmpdir)
         collect_events("do something", {"PATH": f"{tmpdir}:/usr/bin:/bin"}, timeout=2)
         leftover = subprocess.run(
-            ["pgrep", "-f", "sleep 120"], capture_output=True, text=True
+            ["pgrep", "-f", "^sleep 120$"], capture_output=True, text=True
         ).stdout.strip()
 
     assert not leftover, f"orphaned processes survived the timeout: {leftover}"

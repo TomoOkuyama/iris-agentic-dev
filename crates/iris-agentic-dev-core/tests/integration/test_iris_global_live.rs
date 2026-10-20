@@ -323,3 +323,216 @@ async fn test_system_blocklist_blocks_pct_sys_live() {
     assert!(result.is_err(), "^%SYS must be blocked");
     assert_eq!(result.unwrap_err()["error_code"], "SYSTEM_BLOCKLIST");
 }
+
+// ── #146: get with subtree under a subscripted reference ─────────────────────
+
+async fn run_in_user(conn: &IrisConnection, client: &reqwest::Client, code: &str) {
+    let _ = conn.execute_via_generator(code, "USER", client).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_below_a_subscripted_node_returns_its_descendants() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    // The data the reporter had: a settings node with children and a grandchild, plus a sibling
+    // whose last subscript starts with the same letters and must not come back.
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146
+ Set ^IrisDevTest.G146("SourceControl","Git","settings","user")="tdyar"
+ Set ^IrisDevTest.G146("SourceControl","Git","settings","remote","url")="git@example"
+ Set ^IrisDevTest.G146("SourceControl","Git","settingsOther","user")="not mine"
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    let p = IrisGlobalParams {
+        subscripts: Some(vec![
+            "SourceControl".to_string(),
+            "Git".to_string(),
+            "settings".to_string(),
+        ]),
+        subtree: Some(true),
+        max_nodes: Some(200),
+        ..make_params("get", "IrisDevTest.G146")
+    };
+    let result = handle_iris_global(&conn, &client, &p, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    assert_eq!(result["success"], true, "get failed: {result}");
+    let paths: Vec<String> = result["nodes"]
+        .as_array()
+        .expect("nodes array")
+        .iter()
+        .map(|n| n["path"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        result["node_count"], 2,
+        "expected two descendants: {result}"
+    );
+    assert!(
+        paths.iter().any(|p| p.ends_with(r#""settings","user")"#)),
+        "missing settings/user in {paths:?}"
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|p| p.ends_with(r#""settings","remote","url")"#)),
+        "missing the grandchild in {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("settingsOther")),
+        "a sibling with the same prefix leaked in: {paths:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_of_an_unsubscripted_global_still_works() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146b
+ Set ^IrisDevTest.G146b("a")=1
+ Set ^IrisDevTest.G146b("b","c")=2
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    let p = IrisGlobalParams {
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146b")
+    };
+    let result = handle_iris_global(&conn, &client, &p, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146b
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    assert_eq!(result["node_count"], 2, "expected two nodes: {result}");
+}
+
+// ── #146 follow-up: a node with a value and children ($DATA = 11) ────────────
+
+#[tokio::test]
+#[ignore]
+async fn test_get_subtree_includes_the_base_nodes_own_value() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146c
+ Set ^IrisDevTest.G146c("cfg")="top"
+ Set ^IrisDevTest.G146c("cfg","a")=1
+ Set ^IrisDevTest.G146c("cfg","b","c")=2
+ Set ^IrisDevTest.G146c("none","a")=3
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    let with_value = IrisGlobalParams {
+        subscripts: Some(vec!["cfg".to_string()]),
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146c")
+    };
+    let r11 = handle_iris_global(&conn, &client, &with_value, Ok(())).await;
+    // A node with children and no value of its own (D=10) emits no row for itself.
+    let valueless = IrisGlobalParams {
+        subscripts: Some(vec!["none".to_string()]),
+        subtree: Some(true),
+        ..make_params("get", "IrisDevTest.G146c")
+    };
+    let r10 = handle_iris_global(&conn, &client, &valueless, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G146c
+ Write "ok",$C(10)"#,
+    )
+    .await;
+
+    assert_eq!(
+        r11["node_count"], 3,
+        "own value plus two descendants: {r11}"
+    );
+    let first = &r11["nodes"][0];
+    assert!(
+        first["path"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with(r#"("cfg")"#),
+        "the base node comes first: {r11}"
+    );
+    assert_eq!(first["value"], "top", "{r11}");
+    assert_eq!(
+        r10["node_count"], 1,
+        "a valueless node emits only its child: {r10}"
+    );
+}
+
+// ── global_name is code, not data: a read must not run what the name smuggles in ──
+
+#[tokio::test]
+#[ignore]
+async fn test_get_with_a_crafted_global_name_runs_nothing() {
+    let Some((conn, client)) = make_conn() else {
+        eprintln!("IRIS_HOST not set — skipping");
+        return;
+    };
+    run_in_user(
+        &conn,
+        &client,
+        r#" Set ^IrisDevTest.G136Victim = "still here"
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    // Closes the $Get, kills the sentinel, reopens a $Get: valid ObjectScript once interpolated.
+    let crafted = "IrisDevTest.G136X) Kill ^IrisDevTest.G136Victim Set q=$Get(^IrisDevTest.G136X";
+    for subtree in [false, true] {
+        let p = IrisGlobalParams {
+            subtree: Some(subtree),
+            ..make_params("get", crafted)
+        };
+        let r = handle_iris_global(&conn, &client, &p, Ok(())).await;
+        assert_eq!(
+            r["error_code"], "INVALID_GLOBAL_NAME",
+            "subtree={subtree}: {r}"
+        );
+    }
+    let list = make_params("list", crafted);
+    let r = handle_iris_global(&conn, &client, &list, Ok(())).await;
+    assert_eq!(r["error_code"], "INVALID_GLOBAL_NAME", "list: {r}");
+
+    let check = IrisGlobalParams {
+        ..make_params("get", "IrisDevTest.G136Victim")
+    };
+    let still = handle_iris_global(&conn, &client, &check, Ok(())).await;
+    run_in_user(
+        &conn,
+        &client,
+        r#" Kill ^IrisDevTest.G136Victim
+ Write "ok",$C(10)"#,
+    )
+    .await;
+    assert_eq!(
+        still["value"], "still here",
+        "a read killed a global: {still}"
+    );
+}

@@ -1,0 +1,278 @@
+# The adapter: everything the improvement loop needs to know about THIS project, and nothing else.
+# The engine in .improve/engine/ reads this file and has no other knowledge of the project. To use
+# the loop in another project, copy .improve/ and rewrite this file; see .improve/README.md.
+
+[project]
+name = "iris-agentic-dev"
+results_dir = "tests/e2e/results"            # where run records live
+tasks_dir = "tests/e2e/tasks/benchmark"      # where task files live, one <id>.yaml each
+ledger = ".improve/ledger.jsonl"             # append-only record of what the loop did and spent
+
+[nightly]
+workflow = "skill-regression.yml"            # the scheduled GitHub workflow that proves the harness runs
+
+[holdout]
+# A run record is a JSON file in results_dir matching this glob. It must satisfy the contract in
+# .improve/README.md. A record counts as a full holdout when it covers at least min_tasks tasks, has
+# both arms below, and has no run from an excluded side.
+record_glob = "ladder-*.json"
+min_tasks = 30
+excluded_sides = ["train"]
+published_marker = "tools -> tools+skills"   # the line of the record's `published` list to show
+transcripts_glob = "ladder-*.transcripts/{task}__*"   # relative to results_dir; {task} is the id
+
+[holdout.baseline]
+arm = "tools"
+label = "tools alone"
+
+[holdout.treated]
+arm = "tools+skills"
+label = "with skills"
+
+[environment]
+# How to ask whether a task's environment is up: the command is run with {name} replaced by a rule's
+# `container`, and the environment counts as running when {name} appears in its output.
+probe = ["docker", "ps", "--filter", "name=^/{name}$", "--format", "{{.Names}}"]
+
+[budget]
+per_try_usd = 5
+# 135 raised the weekly guard from 60 to the programme total, so it no longer stops a run the
+# programme budget allows. The programme limits below are the real bound. The first study (gpt-4.1,
+# 2026-10-11 to 2026-10-11T10:45Z) spent 237.69 of the 300; `since` starts the Bedrock study after it,
+# with the 62.31 that was left, 60 per skill, 40 per run and a stop at every 50 spent.
+per_week_usd = 300
+total_usd = 62
+per_subject_usd = 60
+per_measure_usd = 40
+checkpoint_usd = 50
+since = "2026-10-11T10:45:00Z"
+
+[evidence]
+# The sha256 of this file goes on every run event; the verdict refuses a changed one.
+criteria = "specs/135-skill-evidence/criteria.md"
+
+[report]
+# `improve report` (`improve skills`): the per-skill verdict against the criteria. Free.
+command = ["python3", "-m", "tests.e2e.skill_eval.evidence"]
+
+[alias]
+skills = "report"
+
+# How to check that ONE task is itself sound (its check is false before, true after its reference
+# solution). {task} is replaced with the task id. Exit 0 means the task is sound.
+# The first rule whose `tasks` list contains the id wins; the rule without a list is the default.
+[[validate]]
+tasks = ["SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25"]
+command = ["python3", "-m", "pytest", "tests/e2e/skill_eval/test_graded_task_live.py", "-k", "ai_hub and {task}", "-q"]
+container = "iad-aihub-iris"
+start_hint = "docker start iad-aihub-iris"
+[validate.env]
+IRIS_HOST = "localhost"
+IRIS_WEB_PORT = "52781"
+IRIS_CONTAINER = "iad-aihub-iris"
+IRIS_USERNAME = "_SYSTEM"
+IRIS_PASSWORD = "SYS"
+
+[[validate]]
+command = ["python3", "-m", "pytest", "tests/e2e/skill_eval/test_graded_task_live.py", "-k", "every_committed_task_is_false_before_and_true_after and {task}", "-q"]
+container = "iris-dev-iris"
+start_hint = "docker start iris-dev-iris"
+[validate.env]
+IRIS_HOST = "localhost"
+IRIS_WEB_PORT = "52780"
+IRIS_CONTAINER = "iris-dev-iris"
+IRIS_USERNAME = "_SYSTEM"
+IRIS_PASSWORD = "SYS"
+
+# How to re-run ONE task after a change. {task}, {repeats}, {cap} and {out} are filled in. The harness
+# must accept a cap in dollars and stop starting sessions once its measured spend reaches it, and write
+# a run record (see README.md) to {out}. `improve try` runs it once with the dry-run flag to show the
+# harness's own estimate, asks, then runs it for real. Only the arms that can change are run: the
+# baseline-with-nothing arm has passed 0 of 41 holdout tasks, so re-running it is a third of the spend
+# for an answer already known.
+# Skill tasks: each runs against its own skill, preloaded, so `skill_loaded` says whether the agent
+# read it. The pooled all-skills arm is not a treatment (no agent ever loaded a skill in it).
+# These must come before the general rule: the first rule that names the task wins.
+# AI Hub tasks (22 to 25) run on the 2026.3 AI Hub container, not iris-dev-iris. 135 read 24 and 25
+# too, so all four are train now (tests/e2e/tasks/skills/read.toml).
+[[try]]
+tasks = ["SKILL-22", "SKILL-23", "SKILL-24", "SKILL-25"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+# iris-ai-hub held-out tasks (135): the AI Hub container, holdout side.
+[[try]]
+tasks = ["SKILL-62", "SKILL-63", "SKILL-64", "SKILL-65", "SKILL-66"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+
+[[try]]
+tasks = [
+  "SKILL-01", "SKILL-04", "SKILL-06", "SKILL-07", "SKILL-08", "SKILL-10", "SKILL-11", "SKILL-12",
+  "SKILL-14", "SKILL-15", "SKILL-17", "SKILL-18", "SKILL-19", "SKILL-20", "SKILL-26", "SKILL-27",
+  "SKILL-28", "SKILL-29", "SKILL-30", "SKILL-31", "SKILL-32", "SKILL-33", "SKILL-34", "SKILL-35",
+  "SKILL-36", "SKILL-37", "SKILL-38", "SKILL-39", "SKILL-40", "SKILL-41", "SKILL-42", "SKILL-43",
+  "SKILL-44", "SKILL-45", "SKILL-46", "SKILL-47",
+  "SKILL-48", "SKILL-49", "SKILL-50", "SKILL-51",
+  "SKILL-52", "SKILL-53", "SKILL-54", "SKILL-55", "SKILL-56", "SKILL-57", "SKILL-58", "SKILL-59",
+  "SKILL-60", "SKILL-61", "SKILL-67", "SKILL-68", "SKILL-69",
+]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "holdout", "--task", "{task}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+[[try]]
+tasks = ["SKILL-02", "SKILL-03", "SKILL-05", "SKILL-09", "SKILL-13", "SKILL-16", "SKILL-21"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "all", "--side", "train", "--task", "{task}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+treated_prefix = "tools+"
+treated_exclude = ["tools+skills"]
+applied_field = "skill_loaded"
+applied_label = "skill loaded"
+before_glob = "ladder-*.runs.jsonl"
+judge_calls = true
+[try.env]
+PYTHONPATH = "."
+
+[[try]]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "tools", "--side", "holdout", "--task", "{task}",
+  "--arm", "tools", "--arm", "tools+skills",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--out", "{out}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+dry_run_flag = "--dry-run"
+repeats = 3
+# One line per finished session: "<task> <arm> PASS|FAIL <n> calls <seconds>s $<cost>".
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+timeout_seconds = 3600
+estimate_note = "The estimate has run 3 to 35 times low (the AI Hub holdout was estimated at $1.02 and cost $12.29). The cap is what bounds the spend."
+[try.env]
+PYTHONPATH = "."
+
+# A measurement run for one skill: its held-out tasks (verdict) or its train tasks (train), arms `tools`
+# and `tools+<skill>`, in one run id. `--require-clean` is added for a verdict run so the commit in the
+# record describes what ran. The binary must be the debug build of this checkout.
+[[measure]]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"
+
+# The AI Hub skill needs the 2026.3 AI Hub build on iad-aihub-iris, not iris-dev-iris.
+[[measure]]
+subjects = ["iris-ai-hub"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "skill", "--skill", "{subject}", "--side", "{side}",
+  "--web-port", "52781", "--container", "iad-aihub-iris",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"
+
+# The tools ladder on the Bedrock model: `tools` against `tools+skills` (every skill installed, none
+# preloaded) over the holdout tools corpus, the shape 121 measured on gpt-4.1. A survey run: recorded for
+# its spend, never read as a skill verdict.
+[[measure]]
+subjects = ["tools-ladder"]
+command = [
+  "python3", "-m", "tests.e2e.skill_eval.ladder",
+  "--ladder", "tools", "--side", "{side}", "--arm", "tools", "--arm", "tools+skills",
+  "--repeats", "{repeats}", "--cap", "{cap}", "--spent", "{spent}",
+  "--model", "bedrock-oai/global.openai.gpt-6-luna", "--effort", "high",
+]
+verdict_args = ["--require-clean"]
+dry_run_flag = "--dry-run"
+repeats = 3
+cost_regex = 'calls\s+[\d.]+s \$(\d+\.\d+)'
+runs_file_regex = 'sessions (?:written incrementally to |so far: )(\S+)'
+timeout_seconds = 21600
+estimate_note = "The estimate has run 3 to 35 times low. The cap is what bounds the spend."
+[measure.env]
+PYTHONPATH = "."
+IAD_BINARY = "target/debug/iris-agentic-dev"

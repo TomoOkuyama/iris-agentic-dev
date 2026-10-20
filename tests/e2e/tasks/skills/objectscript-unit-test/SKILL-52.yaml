@@ -1,0 +1,111 @@
+id: SKILL-52
+prompt: |
+  Bench52.Util in the BENCHMARK namespace has three public methods and one private helper. Its unit
+  test class Test.Bench52.Util exists but is empty. Fill it in with the tests for Bench52.Util, using
+  the convention the project's generated tests follow: one test method for each public method, none
+  for the private helper, each named the way generated test methods are named. Every test must assert
+  a real expected value, and the whole class must run and pass under %UnitTest. If a test shows that
+  Bench52.Util does not do what its comments say, fix Bench52.Util. Leave both classes compiled on the
+  server.
+
+  IRIS: host localhost, web port 52780, username _SYSTEM, password SYS, namespace BENCHMARK.
+  The instance runs in the Docker container iris-dev-iris.
+skill: objectscript-unit-test
+fixtures:
+- name: Bench52.Util
+  content: |
+    Class Bench52.Util Extends %RegisteredObject
+    {
+
+    ClassMethod Add(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA + pB
+    }
+
+    /// "Ada Lovelace" gives "AL": the first letter of each word, upper case.
+    ClassMethod Initials(pName As %String) As %String
+    {
+        Set tName = ..Normalize(pName)
+        Quit $ZConvert($Extract(tName, 1), "U")
+    }
+
+    /// Left-pad a string of digits with zeros to pLen characters.
+    ClassMethod Pad(pStr As %String, pLen As %Integer) As %String
+    {
+        Quit $Translate($Justify(pStr, pLen), " ", "0")
+    }
+
+    ClassMethod Normalize(pStr As %String) As %String [ Private ]
+    {
+        Quit $ZStrip(pStr, "<>W")
+    }
+
+    }
+- name: Test.Bench52.Util
+  content: |
+    Class Test.Bench52.Util Extends %UnitTest.TestCase
+    {
+
+
+    }
+check: |-
+  set io=$io try { set ok=0 if ((##class(Bench52.Util).Add(2,3)=5)&&(##class(Bench52.Util).Initials("Ada Lovelace")="AL")&&(##class(Bench52.Util).Pad("7",3)="007")) { set root="/tmp/ut52/" do ##class(%File).CreateDirectoryChain(root_"Test/Bench52/") set sc=$system.OBJ.ExportUDL("Test.Bench52.Util.cls",root_"Test/Bench52/Util.cls") set ^UnitTestRoot=root open "/dev/null":"W" use "/dev/null" do ##class(%UnitTest.Manager).RunTest("Test.Bench52","/noload/nodelete") use io close "/dev/null" set idx=^UnitTest.Result,su=$order(^UnitTest.Result(idx,"")) set un=0,up=0,ua=999999,us=",",m="" for { set m=$order(^UnitTest.Result(idx,su,"Test.Bench52.Util",m)) quit:m=""  set un=un+1,us=us_m_"," if +$list(^UnitTest.Result(idx,su,"Test.Bench52.Util",m),1) { set up=up+1 } set na=0,n="" for { set n=$order(^UnitTest.Result(idx,su,"Test.Bench52.Util",m,n)) quit:n=""  if $extract($list(^UnitTest.Result(idx,su,"Test.Bench52.Util",m,n),2),1,6)="Assert" { set na=na+1 } } if na<ua { set ua=na } } set ok=((us=",TestAdd,TestInitials,TestPad,")&&(up=un)&&(ua>=1)) } } catch { use io try { close "/dev/null" } catch { } set ok=0 } write $select(ok:"PASS",1:"FAIL")
+solution:
+- name: Bench52.Util
+  content: |
+    Class Bench52.Util Extends %RegisteredObject
+    {
+
+    ClassMethod Add(pA As %Integer, pB As %Integer) As %Integer
+    {
+        Quit pA + pB
+    }
+
+    /// "Ada Lovelace" gives "AL": the first letter of each word, upper case.
+    ClassMethod Initials(pName As %String) As %String
+    {
+        Set tName = ..Normalize(pName)
+        Set tOut = ""
+        For i = 1:1:$Length(tName, " ") {
+            Set tOut = tOut _ $ZConvert($Extract($Piece(tName, " ", i), 1), "U")
+        }
+        Quit tOut
+    }
+
+    /// Left-pad a string of digits with zeros to pLen characters.
+    ClassMethod Pad(pStr As %String, pLen As %Integer) As %String
+    {
+        Quit $Translate($Justify(pStr, pLen), " ", "0")
+    }
+
+    ClassMethod Normalize(pStr As %String) As %String [ Private ]
+    {
+        Quit $ZStrip(pStr, "<>W")
+    }
+
+    }
+- name: Test.Bench52.Util
+  content: |
+    Class Test.Bench52.Util Extends %UnitTest.TestCase
+    {
+
+    Method TestAdd()
+    {
+        Do $$$AssertEquals(##class(Bench52.Util).Add(2, 3), 5, "2 + 3")
+    }
+
+    Method TestInitials()
+    {
+        Do $$$AssertEquals(##class(Bench52.Util).Initials("Ada Lovelace"), "AL", "two words")
+    }
+
+    Method TestPad()
+    {
+        Do $$$AssertEquals(##class(Bench52.Util).Pad("7", 3), "007", "pad to 3")
+    }
+
+    }
+tags:
+- unittest
+- naming
+- convention

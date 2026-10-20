@@ -23,6 +23,19 @@ empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	b8b56ba0c01e	# `test_dispatch_iris_admin_create_delete_namespace` asserts nothing — n
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	9cdc3b7cfc39	# `test_dispatch_extract_message_map_routing_v2` asserts nothing — no as
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_handlers_live.rs	13fecd079db2	# `test_query_nonexistent_table` asserts nothing — no assert!, unwrap, e
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	f76a4e846f12	# `injection_137_a01_database_stats_db` asserts nothing — no assert!, un
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	2202dbb577c0	# `injection_137_a02_journal_search_start_end` asserts nothing — no asse
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	9b4104ee9ee3	# `injection_137_a04_debug_map_int_and_source_map` asserts nothing — no 
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	822456456875	# `injection_137_a06_doc_compiled_name` asserts nothing — no assert!, un
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	958cceb4a324	# `injection_137_a07_coverage_report` asserts nothing — no assert!, unwr
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	74ec2fe53f61	# `injection_137_a08_stream_and_hl7_schema` asserts nothing — no assert!
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	caa878c2f41f	# `injection_137_a09_table_info_and_dispatch` asserts nothing — no asser
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0c8c70612fc0	# `injection_137_a03_interop_body_where` asserts nothing — no assert!, u
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	54e7f52449b5	# `injection_137_a12_admin_journal_time_range` asserts nothing — no asse
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0a52431c1e00	# `injection_137_a10_skills_and_kb` asserts nothing — no assert!, unwrap
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	a667aa4dadd6	# `injection_137_a11_mermaid_and_storage` asserts nothing — no assert!, 
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	0851f98c436c	# `injection_137_t022_namespace_on_read_only_tools` asserts nothing — no
+empty-tests	crates/iris-agentic-dev-core/tests/integration/test_injection_137_live.rs	a185825f5ae1	# `injection_137_d_admin_database_status_name` asserts nothing — no asse
 empty-tests	crates/iris-agentic-dev-core/tests/integration/test_skill_install_e2e.rs	c9c7a2adcede	# `e2e_mirror_to_iris` asserts nothing — no assert!, unwrap, expect, or 
 empty-tests	crates/iris-agentic-dev-core/tests/skills_tests.rs	f90c140baaa9	# `load_invalid_repo_returns_error` asserts nothing — no assert!, unwrap
 empty-tests	crates/iris-agentic-dev-core/tests/skills_tests.rs	a40735cafa22	# `multiple_subscriptions_accumulate` asserts nothing — no assert!, unwr
@@ -183,7 +196,6 @@ vacuous-tests	crates/iris-agentic-dev-bin/tests/plugin_dispatch_tests.rs	3882173
 vacuous-tests	crates/iris-agentic-dev-bin/tests/plugin_dispatch_tests.rs	a678c126d671	# `plugin_on_path_is_dispatched` returns without asserting when a local 
 vacuous-tests	crates/iris-agentic-dev-core/tests/cli_dispatch_integration.rs	40e8c5f7fe4a	# `t023_live_token_counts_in_result` returns without asserting when a lo
 vacuous-tests	crates/iris-agentic-dev-core/tests/cli_dispatch_integration.rs	0d60948f6fa0	# `t024_live_full_suite_cli_dispatch` returns without asserting when a l
-vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	a25016c9695c	# `test_compile_help_exits_zero` returns without asserting when a local 
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	aa4899ab6a0d	# `test_query_help_exits_zero` returns without asserting when a local re
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	77eb4b49df61	# `test_tool_help_exits_zero` returns without asserting when a local res
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	b852bcd17db5	# `test_mcp_exits_when_stdin_closes` returns without asserting when a lo
@@ -192,8 +204,9 @@ vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	a1
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	70382e20c792	# `test_compile_existing_class` returns without asserting when a local r
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	943f6414c0aa	# `test_exec_help_exits_zero` returns without asserting when a local res
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	d16bacdff5b1	# `test_doc_help_exits_zero` returns without asserting when a local reso
-vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_mcp_iris.rs	7aefbba35cc3	# `e2e_iris_compile_success` returns without asserting when a local reso
+vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_cmd_live.rs	a25016c9695c	# `test_compile_help_exits_zero` returns without asserting when a local 
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_mcp_iris.rs	b5c5fc57008b	# `e2e_iris_compile_unreachable_returns_error_code` returns without asse
+vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_mcp_iris.rs	7aefbba35cc3	# `e2e_iris_compile_success` returns without asserting when a local reso
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_scm.rs	9afd624afaac	# `iris_compile_open_uri` returns without asserting when a local resourc
 vacuous-tests	crates/iris-agentic-dev-core/tests/integration/test_skill_install_e2e.rs	a4e248f7cc7c	# `e2e_install_from_live_github` returns without asserting when a local 
 vacuous-tests	crates/iris-agentic-dev-core/tests/skills/nopws_skill_test.rs	7c4baa1d384d	# `test_nopws_skill_contains_required_keywords` returns without assertin
