@@ -295,13 +295,16 @@ Method CheckAdd()
 /// walks every directory under the root and runs what it finds there, so on the CI container, whose
 /// `/tmp/httest` holds `IrisDevRunTest`, it ran that suite and never this class.
 /// `DebugRunTestCase` passes `/norecursive` and runs the named class on 2025.3 and 2026.2 alike.
+/// `$IO` is restored after the run. In CI's full e2e run (twice, 2026-10-21) RunTest left the
+/// device on the CSP process's principal (`|TCP|1972|…`), so the capture lost its output; run alone,
+/// the file passes. Which earlier test sets that up is not yet known.
 async fn run_unit_test(c: &IrisConnection, client: &reqwest::Client, class: &str) -> String {
     let out = run(
         c,
         client,
         &format!(
             " Set had=$Data(^UnitTestRoot)#2, old=$Get(^UnitTestRoot), ^UnitTestRoot=\"/tmp/\"\n \
-             Set sc=##class(%UnitTest.Manager).DebugRunTestCase(\"\",\"{class}\")\n \
+             Set io=$IO,sc=##class(%UnitTest.Manager).DebugRunTestCase(\"\",\"{class}\") Use io\n \
              If had Set ^UnitTestRoot=old\n Else  Kill ^UnitTestRoot\n \
              Set idx=$Order(^UnitTest.Result(\"\"),-1), ref=$Name(^UnitTest.Result(idx)), m=\"\", bad=0\n \
              For {{ Set ref=$Query(@ref) Quit:ref=\"\"  Quit:$QSubscript(ref,1)'=idx  If $QLength(ref)=4 {{ Set m=m_$QSubscript(ref,4)_\",\" Set:$ListGet(@ref,1)=0 bad=1 }} }}\n \
