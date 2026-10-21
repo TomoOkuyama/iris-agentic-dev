@@ -69,6 +69,7 @@ mod test_search_live;
 mod test_server_pool_e2e;
 mod test_skill_facts_127_live;
 mod test_skill_install_e2e;
+mod test_skill_symbols_live;
 mod test_sm_e2e;
 mod test_sql_power_live;
 mod test_sql_safety_e2e;

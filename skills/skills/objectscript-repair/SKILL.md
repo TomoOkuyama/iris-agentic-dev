@@ -22,7 +22,7 @@ This skill provides a procedure for handling ObjectScript repairs that span mult
 When a change is made to a class member, identify all call sites before touching any file.
 
 - **Tool**: `docs_introspect(class_name)` — confirms the current method signature and shows the full class definition from `%Dictionary`
-- **Tool**: `iris_symbols(query="ClassName.*")` — lists all members of the class
+- **Tool**: `docs_introspect(class_name="Package.Class")` — lists the methods and properties of the class, inherited ones included. (`iris_symbols` matches class names only.)
 - **Tool**: `Grep` (regex search across `.cls` files) — finds every reference to the old symbol name
 - **Requirement**: You MUST perform this check for every public `ClassMethod`, `Method`, or `Property` change before writing any edits.
 
@@ -70,7 +70,7 @@ Always verify the workspace as a whole after the full patch is applied.
 **Discovery**:
 
 1. Use `Grep` to find all occurrences of the old symbol name across the workspace.
-2. Use `iris_symbols` to confirm the old name no longer appears in the live IRIS namespace after renaming.
+2. After renaming, run `iris_search` over the affected packages for the old name and confirm it is gone from the server's code. Compiling does not check a rename: a call to a method that no longer exists compiles, and fails only when it runs, with `<METHOD DOES NOT EXIST>`.
    **Transformation**:
 
 - Rename the definition.
