@@ -38,7 +38,8 @@ Current public credentials (re-scrape meta tags if they rotate):
 
 - AppID: `EP91R43SFK`
 - Index: `docs`
-- SearchKey: `709759d92d99a5cf927e90c965741389`
+- SearchKey: the `ALG-SearchKey` meta tag. Since TPRM-6602 (2026-10-20) the tool reads it from a
+  page at run time: the key the site served carried write rights, not search only.
 
 Each hit returns:
 

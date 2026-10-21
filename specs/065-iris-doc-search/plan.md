@@ -102,7 +102,7 @@ Rewrite to lead with `iris_doc_search`, add Algolia recipe fallback, add decisio
 POST https://EP91R43SFK-dsn.algolia.net/1/indexes/docs/query
 Headers:
   X-Algolia-Application-Id: EP91R43SFK
-  X-Algolia-API-Key: 709759d92d99a5cf927e90c965741389
+  X-Algolia-API-Key: <the ALG-SearchKey meta tag of any docs page; read at run time since TPRM-6602>
   Content-Type: application/json
 
 Body:

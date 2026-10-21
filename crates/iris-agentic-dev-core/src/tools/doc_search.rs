@@ -2,13 +2,76 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-// Public search-only credentials embedded in every docs.intersystems.com page.
-// Re-scrape if key rotates:
-//   curl -sS -A "Mozilla/5.0" "https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=GCM_monitoring" \
-//     | grep -oiE 'ALG-[A-Za-z]+.*content="[^"]*"'
-const ALGOLIA_APP_ID: &str = "EP91R43SFK";
-const ALGOLIA_SEARCH_KEY: &str = "709759d92d99a5cf927e90c965741389";
-const ALGOLIA_ENDPOINT: &str = "https://EP91R43SFK-dsn.algolia.net/1/indexes/docs/query";
+// docs.intersystems.com publishes its Algolia app id, index and search key in every page's
+// `<meta class="algolia" name="ALG-...">` tags. They are read from a page at run time and kept for
+// the life of the process, not copied into the source: the key the site served in October 2026
+// carried write rights as well as search (TPRM-6602), so it will be rotated, and a copy here would
+// stop the tool working the day it is.
+const DOCS_PAGE: &str =
+    "https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=GCM_monitoring";
+// The site answers a non-browser User-Agent with 403.
+const BROWSER_UA: &str = "Mozilla/5.0";
+
+static CREDS: std::sync::OnceLock<AlgoliaCreds> = std::sync::OnceLock::new();
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlgoliaCreds {
+    pub app_id: String,
+    pub index: String,
+    pub search_key: String,
+}
+
+fn meta_content<'a>(html: &'a str, name: &str) -> Option<&'a str> {
+    let at = html.find(&format!("name=\"{name}\""))?;
+    let (tag, _) = html[at..].split_once('>')?;
+    let (_, value) = tag.split_once("content=\"")?;
+    let (value, _) = value.split_once('"')?;
+    Some(value)
+}
+
+/// The app id goes into a hostname and the key into a header, so each must be plainly an id.
+fn plain_id(v: &str, min: usize, max: usize, extra: &[char]) -> bool {
+    (min..=max).contains(&v.len())
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(&c))
+}
+
+pub fn parse_algolia_meta(html: &str) -> Option<AlgoliaCreds> {
+    let app_id = meta_content(html, "ALG-AppID")?;
+    let index = meta_content(html, "ALG-Index")?;
+    let search_key = meta_content(html, "ALG-SearchKey")?;
+    (plain_id(app_id, 8, 32, &[])
+        && plain_id(index, 1, 64, &['_', '-'])
+        && plain_id(search_key, 16, 128, &[]))
+    .then(|| AlgoliaCreds {
+        app_id: app_id.to_string(),
+        index: index.to_string(),
+        search_key: search_key.to_string(),
+    })
+}
+
+pub async fn fetch_algolia_creds(client: &reqwest::Client) -> Result<AlgoliaCreds, String> {
+    if let Some(c) = CREDS.get() {
+        return Ok(c.clone());
+    }
+    let resp = client
+        .get(DOCS_PAGE)
+        .header("User-Agent", BROWSER_UA)
+        .send()
+        .await
+        .map_err(|e| format!("could not fetch {DOCS_PAGE}: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("{DOCS_PAGE} returned HTTP {}", resp.status()));
+    }
+    let html = resp
+        .text()
+        .await
+        .map_err(|e| format!("could not read {DOCS_PAGE}: {e}"))?;
+    let creds = parse_algolia_meta(&html).ok_or_else(|| {
+        format!("{DOCS_PAGE} carries no usable ALG-AppID, ALG-Index and ALG-SearchKey meta tags")
+    })?;
+    Ok(CREDS.get_or_init(|| creds).clone())
+}
 
 const DEFAULT_HITS: u8 = 5;
 const MAX_HITS: u8 = 10;
@@ -99,12 +162,26 @@ pub fn parse_hits(response: &Value) -> Vec<Value> {
 }
 
 pub async fn handle_iris_doc_search(client: &reqwest::Client, p: &IrisDocSearchParams) -> Value {
+    let creds = match fetch_algolia_creds(client).await {
+        Ok(c) => c,
+        Err(e) => {
+            return json!({
+                "error": format!("The docs search key is not available: {e}"),
+                "error_code": "DOC_SEARCH_KEY_UNAVAILABLE",
+                "hits": []
+            })
+        }
+    };
     let body = build_request_body(p);
+    let endpoint = format!(
+        "https://{}-dsn.algolia.net/1/indexes/{}/query",
+        creds.app_id, creds.index
+    );
 
     let result = client
-        .post(ALGOLIA_ENDPOINT)
-        .header("X-Algolia-Application-Id", ALGOLIA_APP_ID)
-        .header("X-Algolia-API-Key", ALGOLIA_SEARCH_KEY)
+        .post(&endpoint)
+        .header("X-Algolia-Application-Id", &creds.app_id)
+        .header("X-Algolia-API-Key", &creds.search_key)
         .header("Content-Type", "application/json")
         .json(&body)
         .send()

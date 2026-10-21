@@ -102,13 +102,18 @@ For defaults you have to fetch the page.
 
 ## Fallback: Algolia recipe (manual, if tool is unavailable)
 
-The docs site embeds public search-only credentials in every page. This is permitted by
-`robots.txt` (`Content-Signal: search=yes`).
+The docs site publishes its Algolia app id and key in every page's `ALG-*` meta tags, and
+`robots.txt` permits search (`Content-Signal: search=yes`). Read them from a page each time:
+the key rotates, so never copy it into a file.
 
 ```bash
-curl -sS "https://EP91R43SFK-dsn.algolia.net/1/indexes/docs/query" \
-  -H "X-Algolia-API-Key: 709759d92d99a5cf927e90c965741389" \
-  -H "X-Algolia-Application-Id: EP91R43SFK" \
+PAGE="https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=GCM_monitoring"
+HTML=$(curl -sS -A "Mozilla/5.0" "$PAGE")
+meta() { printf '%s' "$HTML" | grep -o "name=\"ALG-$1\"[^>]*" | sed -E 's/.*content="([^"]*)".*/\1/'; }
+APP=$(meta AppID) KEY=$(meta SearchKey)
+curl -sS "https://$APP-dsn.algolia.net/1/indexes/docs/query" \
+  -H "X-Algolia-API-Key: $KEY" \
+  -H "X-Algolia-Application-Id: $APP" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "YOUR QUERY HERE",

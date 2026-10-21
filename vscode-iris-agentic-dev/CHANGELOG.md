@@ -22,7 +22,16 @@ makes: HTTPS and WebSocket calls to IRIS, and the fetches from GitHub behind `sk
   - RUSTSEC-2026-0382 (rustls-webpki): certificate verification could accept a distrusted
     intermediate.
 
-`cargo audit` is clean again. Nothing else changed for callers.
+`cargo audit` is clean again.
+
+### Notable fixes
+
+- **`iris_doc_search` reads the docs site's Algolia key at run time.** iad carried a copy of the
+  key docs.intersystems.com publishes in its pages, and that key turned out to carry write rights
+  as well as search (TPRM-6602). When the docs team rotates it, the copy would have stopped the
+  tool working. iad now reads the key from a docs page's meta tags once per process, and answers
+  `DOC_SEARCH_KEY_UNAVAILABLE` when it cannot. The key is no longer in the repository, and the
+  `iris-docs` skill's manual recipe reads it the same way.
 
 [v1.6.0...v1.6.1](https://github.com/intersystems-community/iris-agentic-dev/compare/v1.6.0...v1.6.1)
 
