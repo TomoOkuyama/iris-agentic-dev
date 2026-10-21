@@ -20,7 +20,7 @@ proceeding — these tools are not available in the standard toolset.
 
 Before editing, always locate the **Symbol Anchor** (the definition of the class or method you intend to change).
 
-- **Tool**: `iris_symbols(query)` — searches the live IRIS namespace by name pattern (supports `*` wildcards)
+- **Tool**: `iris_symbols(query)` — finds classes in the live IRIS namespace by class name (`Pkg.*` lists a package's classes); it returns class names only
 - **Tool**: `iris_symbols_local(workspace_path)` — parses `.cls` files on disk via tree-sitter when IRIS is unavailable
 - **Tool**: `iris_search` — full-text regex search across all IRIS documents in a namespace; use when symbol lookup is too narrow and you need to find arbitrary patterns in source
 - **Strategy**: Don't just search for the name; check the `containerName` to confirm you are in the correct package.
@@ -30,7 +30,7 @@ Before editing, always locate the **Symbol Anchor** (the definition of the class
 When changing a signature, use **Upstream Tracing** to find every caller.
 
 - **Tool**: `docs_introspect(class_name)` — fetches the full class definition from `%Dictionary`, including all methods, parameters, return types, and inheritance chain
-- **Tool**: `iris_symbols(query="ClassName.*")` — list all members of a class
+- **Tool**: `docs_introspect(class_name="Package.Class")` — the methods and properties of a class, with signatures, inherited ones included
 - **Tool**: `iris_execute_method` — invoke a ClassMethod directly without ObjectScript boilerplate; useful for spot-checking return values during tracing (merged toolset only)
 - **Tool**: `iris_doc_search` — searches docs.intersystems.com via Algolia when you need reference material on a system class or API (merged toolset only)
 - **Strategy**: Read each caller's containing file with the `Read` tool before modifying. If a method is called from multiple packages, plan all edits before touching any file.
@@ -42,7 +42,7 @@ ObjectScript heavily uses inheritance (`Extends`).
 - **Strategy**: If a method is missing in the current file, check the `Extends` list.
 - **Tool**: `docs_introspect(class_name)` — reveals the full inherited interface including superclass chain.
 - **Tool**: `find_subclass_implementations` — find all subclass overrides of a method in the full inheritance hierarchy; essential when changing a base class method that subclasses may override differently
-- **Strategy**: Run `iris_symbols("SuperClass.*")` to list members inherited from a superclass.
+- **Strategy**: Run `docs_introspect(class_name="SuperClass")` to see what a superclass passes down.
 
 ### 4. Dynamic Dispatch Resolution
 

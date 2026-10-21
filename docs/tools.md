@@ -307,24 +307,24 @@ Read, write, delete, insert lines, or list IRIS documents.
 | `category`                   | string   | —        | `"CLS"` \| `"MAC"` \| `"INT"` \| `"INC"` \| `"ALL"`                                 |
 | `max_results`                | int      | `200`    | Max 1000; for `list`                                                                |
 | `compiled_type`              | string   | `"INT"`  | `"INT"` is the only value; for `compiled` mode. OBJ returns `INVALID_PARAMS`        |
-| `allow_storage_regeneration` | bool     | `false`  | Required to proceed when IRIS strips Storage blocks on PUT                          |
+| `allow_storage_regeneration` | bool     | `false`  | Confirms a `put` that drops a class's existing Storage block                        |
 | `elicitation_id`             | string   | —        | SCM checkout dialog resume ID                                                       |
 | `elicitation_answer`         | string   | —        | SCM checkout dialog answer                                                          |
 | `namespace`                  | string   | `"USER"` |                                                                                     |
 
 **Modes:**
 
-| Mode           | What it does                                                              |
-| -------------- | ------------------------------------------------------------------------- |
-| `get`          | Read document content                                                     |
-| `put`          | Write document content (SCM-gated, strips Storage blocks on IRIS 2025.1+) |
-| `delete`       | Delete document                                                           |
-| `head`         | Return metadata only (size, timestamp) without content                    |
-| `fragment`     | Read lines `start`–`end`                                                  |
-| `compiled`     | Read compiled INT or OBJ source                                           |
-| `list`         | List documents matching `pattern`/`category`                              |
-| `insert`       | Insert `content` before `line` (use `expected` for a CAS check)           |
-| `delete_lines` | Delete lines `start`–`end` (use `expected` for a CAS check)               |
+| Mode           | What it does                                                    |
+| -------------- | --------------------------------------------------------------- |
+| `get`          | Read document content                                           |
+| `put`          | Write document content (SCM-gated; Storage is written as given) |
+| `delete`       | Delete document                                                 |
+| `head`         | Return metadata only (size, timestamp) without content          |
+| `fragment`     | Read lines `start`–`end`                                        |
+| `compiled`     | Read compiled INT or OBJ source                                 |
+| `list`         | List documents matching `pattern`/`category`                    |
+| `insert`       | Insert `content` before `line` (use `expected` for a CAS check) |
+| `delete_lines` | Delete lines `start`–`end` (use `expected` for a CAS check)     |
 
 **Examples:**
 
@@ -343,12 +343,13 @@ iris_doc(mode="insert", name="MyApp.MyClass.cls", line=42,
 iris_doc(mode="list", pattern="MyApp.*.cls")
 ```
 
-**Storage block guard.** IRIS 2025.1+ rejects Storage XML in a PUT request (upstream
-bug). `iris_doc` strips it before writing and refuses by default with
-`STORAGE_RESET_REQUIRES_CONFIRMATION`. Pass `allow_storage_regeneration: true` to proceed — but
-understand that recompiling without Storage forces IRIS to regenerate global layout,
-which can change the extent for `%Persistent` classes. Use `mode=insert` or
-`mode=delete_lines` when the edit does not touch the Storage block.
+**Storage block guard.** `iris_doc` writes a Storage block exactly as given; IRIS 2025.3 and
+2026.2 both accept one in a PUT and keep it through the compile. What it refuses, with
+`STORAGE_RESET_REQUIRES_CONFIRMATION`, is a `put` whose content has no Storage block for a class
+that has one on the server: compiling that makes IRIS regenerate the storage from scratch, which
+can misalign existing rows of a `%Persistent` class. Pass `allow_storage_regeneration: true` only
+when the reset is intended; the response then lists the properties the old storage held. Use
+`mode=insert` or `mode=delete_lines` when the edit does not touch the Storage block.
 
 **SCM checkout.** On source-controlled instances, `iris_doc` runs the SCM pre-write
 check before writing. If checkout is required, the tool returns an elicitation dialog
@@ -728,7 +729,7 @@ docs_introspect(class_name="Ens.BusinessProcess")
 
 ### `iris_search`
 
-Full-text search across the namespace. Supports regex and category filters.
+Full-text search within a document scope. Supports regex and category filters.
 
 | Parameter        | Type     | Default  | Notes                                                                        |
 | ---------------- | -------- | -------- | ---------------------------------------------------------------------------- |
@@ -738,9 +739,18 @@ Full-text search across the namespace. Supports regex and category filters.
 | `case_sensitive` | bool     | `false`  |                                                                              |
 | `category`       | string   | —        | `"CLS"` \| `"MAC"` \| `"INT"` \| `"INC"` \| `"ALL"`                          |
 | `namespace`      | string   | `"USER"` |                                                                              |
+| `limit`          | int      | `200`    | Most matches, 1 to 10000; 200 is Atelier's own default                       |
 | `inline`         | bool     | `false`  | Bypass log store                                                             |
 
 Namespace-wide grep times out — always provide a `documents` scope.
+
+A `regex` pattern matches anywhere in a line, as in grep; `^` and `$` anchor it to the start or
+end. (Atelier itself matches a regex against the whole line, so iad wraps the pattern.)
+
+Atelier stops at `limit` matches. When it does, the response has `limit_reached: true` and a
+`warning`: there may be more matches than `results` holds. Narrow `documents` or raise `limit`.
+Up to 1.6.1 iad sent no limit and did not report the cut-off, so a search could stop at 200
+matches and look complete, and `regex: true` was read by Atelier as off.
 
 ```text
 iris_search(query="GetPatient", documents=["MyApp.*.cls"])

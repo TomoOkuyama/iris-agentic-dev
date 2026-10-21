@@ -109,6 +109,7 @@ mod test_skill_install;
 mod test_skill_install_tiers;
 mod test_skill_interop_ui_136;
 mod test_skill_manifest_sync;
+mod test_skill_symbols_claims;
 mod test_skill_tiers;
 mod test_skills_mod_unit;
 mod test_skills_unit;
