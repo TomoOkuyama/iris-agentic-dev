@@ -674,36 +674,29 @@ async fn director_status_calls_match_the_skill() {
         .await;
     let r = put_and_compile(&c, &client, "IadLive130.EmptyProd.cls", EMPTY_PROD).await;
     assert!(r.success(), "EmptyProd: {}", compile_text(&r));
-    // On a fresh 2025.3 instance the first production ever started, stopped at once, waits 30 s on
-    // the runtime lock and is left suspended (state 3); every later start and stop is clean. CI's
-    // container is always fresh, so one start and stop, then `CleanProduction`, come first.
-    let _ = c
-        .execute_via_generator(
-            " Do ##class(Ens.Director).StartProduction(\"IadLive130.EmptyProd\")\n \
-             Do ##class(Ens.Director).StopProduction(60,0)\n \
-             Do ##class(Ens.Director).StopProduction(10,1)\n \
-             Do ##class(Ens.Director).CleanProduction()",
-            NS,
-            &client,
-        )
-        .await;
-
     let out = run(
         &c,
         &client,
-        " Set sc=##class(Ens.Director).StartProduction(\"IadLive130.EmptyProd\") Set s1=+sc\n \
+        " Set before=+$Order(^Ens.MessageHeaderD(\"\"),-1)\n \
+         Set sc=##class(Ens.Director).StartProduction(\"IadLive130.EmptyProd\") Set s1=+sc\n \
          Set sc=##class(Ens.Director).GetProductionStatus(.n1,.st1)\n \
          Set sc=##class(Ens.Director).StartProduction(\"IadLive130.EmptyProd\") Set again=$System.Status.GetErrorCodes(sc)_\" \"_$System.Status.GetErrorText(sc)\n \
          Set running=##class(Ens.Director).IsProductionRunning(\"IadLive130.EmptyProd\")\n \
+         For waitn=1:1:60 { Set rs=##class(%SQL.Statement).%ExecDirect(,\"SELECT COUNT(*) AS n, SUM(CASE WHEN Status IN (1,2,3) THEN 1 ELSE 0 END) AS pend FROM Ens.MessageHeader WHERE ID > ? AND TargetConfigName = 'Ens.ScheduleHandler'\",before) Do rs.%Next() Quit:(rs.n>0)&&(+rs.pend=0)  Hang 0.5 }\n \
          Set sc=##class(Ens.Director).StopProduction(60,0) Set s2=+sc,stoperr=$Select(sc:\"\",1:$System.Status.GetErrorText(sc))\n \
          Set hist=\"\" For i=1:1:20 { Set sc=##class(Ens.Director).GetProductionStatus(.n2,.st2) Set hist=hist_st2 Quit:st2'=3  Hang 0.5 }\n \
          Set active=##class(Ens.Director).GetActiveProductionName()\n \
          Try { Do $CLASSMETHOD(\"Ens.Director\",\"GetProductionState\") Set gps=\"exists\" } Catch e { Set gps=e.Name }\n \
-         Write \"~[\",s1,\"|\",n1,\"|\",st1,\"|\",running,\"|\",s2,\"|\",n2,\"|\",st2,\"|\",active,\"|\",gps,\"|\",again,\"|\",stoperr,\"|\",hist,\"]~\"",
+         Write \"~[\",s1,\"|\",n1,\"|\",st1,\"|\",running,\"|\",s2,\"|\",n2,\"|\",st2,\"|\",active,\"|\",gps,\"|\",again,\"|\",stoperr,\"|\",hist,\"|\",waitn,\"]~\"",
     )
     .await;
-    // On the CI runner GetProductionStatus has read 3 (suspended) right after a stop that returned
-    // 1, so the status is polled for up to 10 s; `hist` is every state it read.
+    // A start sends Ens.ScheduleService a request to Ens.ScheduleHandler, whose OnRequest calls
+    // UpdateProduction and so needs the runtime lock. StopProduction holds that lock while it waits
+    // for the jobs to end; if it gets there first, the handler waits 30 s, dies with
+    // ErrCanNotAcquireRuntimeLock, and the stop leaves the production suspended (state 3). On the CI
+    // runner the handler was still pending when the stop came, every run since 2026-10-07. So the
+    // stop waits until that request has completed (`waitn` is the polls it took, at 0.5 s each),
+    // and the status is still polled for up to 10 s; `hist` is every state it read.
     let p: Vec<String> = marked(&out).split('|').map(str::to_string).collect();
     assert_eq!(p[0], "1", "start: {out}");
     assert_eq!(p[1], "IadLive130.EmptyProd", "running name: {out}");
