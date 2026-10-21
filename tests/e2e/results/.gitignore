@@ -18,3 +18,8 @@ optimize/
 # 130 round 2: raw session event streams. They carry prompts, connection details and tool
 # payloads; research.md quotes the few lines behind a fix.
 *.transcripts/
+
+# Ladder session records stay local too. They carry tool errors verbatim, and a baseline session
+# that searched `/` wrote the machine's account names and security software into one. The ledger
+# names them by path; the evidence report reads the ones on disk and skips the rest.
+*.runs.jsonl

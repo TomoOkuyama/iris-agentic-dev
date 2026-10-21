@@ -353,6 +353,30 @@ fn literal_kill_check_reads_every_argument() {
     }
 }
 
+/// B4: an argument's quotes and parentheses do not end it, and a global inside one is a subscript
+/// or a string, not a global being killed.
+#[test]
+fn literal_kill_check_reads_past_strings_and_subscripts() {
+    use iris_agentic_dev_core::tools::write_gate::contains_global_kill;
+    for code in [
+        "Kill a(\"x,y\"),^Y",
+        "Kill a(1,2),^Y",
+        "Kill a(b(1),\"p q\"),^Y",
+        "Kill x,\t^Y",
+    ] {
+        assert!(contains_global_kill(code), "{code}");
+    }
+    for code in [
+        "Kill a(\"^Y\")",
+        "Kill a(^Y)",
+        "Kill a(1,^Y)",
+        "Kill x,y Set ^Z=1",
+        "Kill a(\"x y\") Write ^Y",
+    ] {
+        assert!(!contains_global_kill(code), "{code}");
+    }
+}
+
 /// B1: the ssh route built a remote shell command from the container and namespace with no
 /// quoting, outside every IRIS gate. A host starting with `-` would be read by ssh as an option.
 #[test]

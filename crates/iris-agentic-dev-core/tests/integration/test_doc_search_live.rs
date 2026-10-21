@@ -132,3 +132,16 @@ async fn doc_search_excerpt_within_600_chars() {
         );
     }
 }
+
+/// TPRM-6602: the key comes from the live docs page, so a rotation there needs no release here.
+#[tokio::test]
+#[ignore]
+async fn the_search_key_is_read_from_the_live_docs_page() {
+    use iris_agentic_dev_core::tools::doc_search::fetch_algolia_creds;
+    let creds = fetch_algolia_creds(&make_client())
+        .await
+        .expect("docs.intersystems.com serves its Algolia meta tags");
+    assert_eq!(creds.index, "docs");
+    assert!(creds.app_id.len() >= 8, "{creds:?}");
+    assert!(creds.search_key.len() >= 16, "{creds:?}");
+}

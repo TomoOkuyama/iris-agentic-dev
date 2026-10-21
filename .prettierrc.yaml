@@ -8,3 +8,9 @@
 printWidth: 80
 tabWidth: 2
 proseWrap: preserve
+# Prettier formats a ```mdx block as embedded code and strips the indent that lines up each axis
+# under SELECT, so the iris-mdx examples stop reading as MDX. Prose in the file is still checked.
+overrides:
+  - files: skills/skills/iris-mdx/SKILL.md
+    options:
+      embeddedLanguageFormatting: "off"

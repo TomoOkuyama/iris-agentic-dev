@@ -39,6 +39,7 @@ import collections
 import hashlib
 import pathlib
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -1909,7 +1910,9 @@ def objectscript_splice_findings(files: dict[str, str]) -> list[Finding]:
             hits.append((q.start(), "backslash escape"))
         for offset, what in sorted(set(hits)):
             line = line_of(offset)
-            if marked(line) or re.search(r"_lit(?::[^}]*)?\}|\{[A-Z][A-Z0-9_]*\}", what):
+            if marked(line) or re.search(
+                r"_lit(?::[^}]*)?\}|\{[A-Z][A-Z0-9_]*\}", what
+            ):
                 continue
             if what == "backslash escape":
                 msg = (
@@ -1930,6 +1933,51 @@ def check_objectscript_splice() -> list[Finding]:
     return objectscript_splice_findings(_src_texts())
 
 
+# ---------------------------------------------------------------------------
+# committed-api-key
+#
+# Shipped instance: the Algolia key docs.intersystems.com serves in its pages sat in
+# `doc_search.rs`, the `iris-docs` skill and spec 065 from July 2026. A researcher reported it as
+# a leaked admin key (TPRM-6602); its ACL turned out to carry write rights, so it will be rotated.
+# iad now reads it from the page at run time. A finding is a 32-character hex run on a line that
+# names Algolia or a search key, in any tracked file but the recorded run results.
+# ---------------------------------------------------------------------------
+
+API_KEY_LINE = re.compile(r"algolia|searchkey|search_key", re.I)
+HEX32 = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{32}(?![0-9a-fA-F])")
+
+
+def committed_api_key_findings(files: dict[str, str]) -> list[Finding]:
+    found = []
+    for path, text in files.items():
+        if path.startswith("tests/e2e/results/"):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if API_KEY_LINE.search(line) and HEX32.search(line):
+                found.append(
+                    Finding(
+                        "committed-api-key",
+                        f"{path}:{n}",
+                        "holds an API key; read it at run time (from the page or service that "
+                        "publishes it, or an env var) instead of committing it.",
+                    )
+                )
+    return found
+
+
+def check_committed_api_key() -> list[Finding]:
+    out = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
+    ).stdout.decode()
+    files = {}
+    for path in filter(None, out.split("\0")):
+        try:
+            files[path] = (ROOT / path).read_text(errors="ignore")
+        except (IsADirectoryError, FileNotFoundError):
+            continue
+    return committed_api_key_findings(files)
+
+
 CHECKS = {
     "vacuous-tests": check_vacuous_tests,
     "empty-tests": check_empty_tests,
@@ -1948,12 +1996,14 @@ CHECKS = {
     "scored-exception": check_scored_exception,
     "unpowered-result": check_unpowered_result,
     "objectscript-splice": check_objectscript_splice,
+    "committed-api-key": check_committed_api_key,
 }
 
 # Findings in these classes always fail the gate, baseline or not: the class is fully
 # cleaned up in the tree, so any instance is new by definition.
 NO_BASELINE = {
     "objectscript-splice",
+    "committed-api-key",
     "error-sentinels",
     "self-referential-gates",
     "version-consistency",

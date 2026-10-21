@@ -219,3 +219,55 @@ mod params_tests {
         assert_eq!(body["query"], "anything");
     }
 }
+
+/// TPRM-6602: the Algolia key is read from the docs page at run time, not kept in the repo. The
+/// key docs.intersystems.com serves turned out to carry write rights, so it will be rotated; a
+/// copy in the source would break the tool the day it is, and is a key in the repo either way.
+mod algolia_meta_tests {
+    use iris_agentic_dev_core::tools::doc_search::{parse_algolia_meta, AlgoliaCreds};
+
+    const PAGE: &str = r#"<head><title>x</title>
+<meta class="algolia" name="ALG-AppID" data-type="string" content="AB12CD34EF"/>
+<meta class="algolia" name="ALG-Index" data-type="string" content="docs"/>
+<meta class="algolia" name="ALG-SearchKey" data-type="string" content="TESTKEYtestkeyTESTKEYtestkey0000"/>
+<meta class="algolia" name="ALG-Version" data-type="string" content="version:'2026.2'"/>
+</head>"#;
+
+    #[test]
+    fn reads_the_app_id_index_and_key_from_the_meta_tags() {
+        assert_eq!(
+            parse_algolia_meta(PAGE),
+            Some(AlgoliaCreds {
+                app_id: "AB12CD34EF".into(),
+                index: "docs".into(),
+                search_key: "TESTKEYtestkeyTESTKEYtestkey0000".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_page_without_the_key_gives_none() {
+        let page = PAGE.replace("ALG-SearchKey", "ALG-Other");
+        assert_eq!(parse_algolia_meta(&page), None);
+        assert_eq!(parse_algolia_meta("<html></html>"), None);
+    }
+
+    /// The app id becomes part of a hostname and the key a header value, so a value that is not
+    /// plainly an id is refused rather than sent.
+    #[test]
+    fn values_that_are_not_plain_ids_are_refused() {
+        for (from, to) in [
+            ("AB12CD34EF", "evil.example.com/x"),
+            ("AB12CD34EF", "AB12"),
+            ("docs", "docs/../keys"),
+            (
+                "TESTKEYtestkeyTESTKEYtestkey0000",
+                "TESTKEYtestkey TESTKEYtestkey000",
+            ),
+            ("TESTKEYtestkeyTESTKEYtestkey0000", "short"),
+        ] {
+            let page = PAGE.replace(from, to);
+            assert_eq!(parse_algolia_meta(&page), None, "{to}");
+        }
+    }
+}

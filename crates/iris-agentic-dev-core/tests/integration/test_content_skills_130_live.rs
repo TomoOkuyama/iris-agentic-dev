@@ -663,7 +663,7 @@ XData ProductionDefinition
 #[ignore]
 async fn director_status_calls_match_the_skill() {
     let Some((c, client)) = conn() else { return };
-    // `CleanProduction` clears a production an earlier test left troubled (state 3), which a force
+    // `CleanProduction` clears a production an earlier test left suspended (state 3), which a force
     // stop does not.
     let _ = c
         .execute_via_generator(
@@ -674,6 +674,19 @@ async fn director_status_calls_match_the_skill() {
         .await;
     let r = put_and_compile(&c, &client, "IadLive130.EmptyProd.cls", EMPTY_PROD).await;
     assert!(r.success(), "EmptyProd: {}", compile_text(&r));
+    // On a fresh 2025.3 instance the first production ever started, stopped at once, waits 30 s on
+    // the runtime lock and is left suspended (state 3); every later start and stop is clean. CI's
+    // container is always fresh, so one start and stop, then `CleanProduction`, come first.
+    let _ = c
+        .execute_via_generator(
+            " Do ##class(Ens.Director).StartProduction(\"IadLive130.EmptyProd\")\n \
+             Do ##class(Ens.Director).StopProduction(60,0)\n \
+             Do ##class(Ens.Director).StopProduction(10,1)\n \
+             Do ##class(Ens.Director).CleanProduction()",
+            NS,
+            &client,
+        )
+        .await;
 
     let out = run(
         &c,
@@ -689,7 +702,7 @@ async fn director_status_calls_match_the_skill() {
          Write \"~[\",s1,\"|\",n1,\"|\",st1,\"|\",running,\"|\",s2,\"|\",n2,\"|\",st2,\"|\",active,\"|\",gps,\"|\",again,\"|\",stoperr,\"|\",hist,\"]~\"",
     )
     .await;
-    // On the CI runner GetProductionStatus has read 3 (troubled) right after a stop that returned
+    // On the CI runner GetProductionStatus has read 3 (suspended) right after a stop that returned
     // 1, so the status is polled for up to 10 s; `hist` is every state it read.
     let p: Vec<String> = marked(&out).split('|').map(str::to_string).collect();
     assert_eq!(p[0], "1", "start: {out}");
