@@ -1207,6 +1207,42 @@ def test_objectscript_splice() -> None:
     )
 
 
+# committed-api-key: a 32-character hex key on a line that names Algolia or a search key.
+# TPRM-6602: the docs site's Algolia key sat in four tracked files. The hex here is made up.
+FAKE_HEX = "ab" * 16
+KEY_FILES = {
+    "crates/c/src/a.rs": f'const ALGOLIA_SEARCH_KEY: &str = "{FAKE_HEX}";\n',
+    "skills/s/SKILL.md": f'  -H "X-Algolia-API-Key: {FAKE_HEX}" \\\n',
+    "specs/s/spec.md": f"- SearchKey: `{FAKE_HEX}`\n",
+}
+KEY_CLEAN = {
+    # A key read at run time, a placeholder, a hex digest with no key nearby, a short id.
+    "crates/c/src/a.rs": 'let key = meta_content(html, "ALG-SearchKey")?;\n',
+    "skills/s/SKILL.md": '  -H "X-Algolia-API-Key: $KEY" \\\n',
+    "tests/t.rs": f'assert_eq!(sha, "{FAKE_HEX}");\n',
+    "docs/d.md": "Algolia app EP91R43SFK serves the docs index.\n",
+}
+
+
+def test_committed_api_key() -> None:
+    print("committed-api-key")
+    for path, text in KEY_FILES.items():
+        found = ap.committed_api_key_findings({path: text})
+        check(f"fires on a key in {path}", len(found) == 1, messages(found))
+    found = ap.committed_api_key_findings(KEY_CLEAN)
+    check(
+        "silent on a run-time read, a placeholder, a bare digest and an app id",
+        not found,
+        messages(found),
+    )
+    found = ap.committed_api_key_findings(
+        {"tests/e2e/results/r.json": KEY_FILES["crates/c/src/a.rs"]}
+    )
+    check("silent on recorded run results", not found, messages(found))
+    check("committed-api-key is registered in CHECKS", "committed-api-key" in ap.CHECKS)
+    check("committed-api-key is never baselined", "committed-api-key" in ap.NO_BASELINE)
+
+
 def test_zz_every_canary_passed() -> None:
     """The one assertion in the file, and the reason `pytest` can be trusted on it.
 
@@ -1226,6 +1262,7 @@ def main() -> int:
     test_empty_tests()
     test_device_capture()
     test_objectscript_splice()
+    test_committed_api_key()
     test_scored_exception()
     test_unpowered_result()
     test_tool_name_refs()
