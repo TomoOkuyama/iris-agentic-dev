@@ -3207,8 +3207,9 @@ pub enum ExtractMessageMapRoutingResponse {
 //
 // Full-text search via Atelier REST v2, with a sync-first / async-poll-fallback path
 // (many IRIS servers answer `/action/search` synchronously even for slow wildcard
-// searches; others defer via a `workId` to poll). No gate calls. Only two JSON error
-// shapes exist here — `SCOPE_REQUIRED` (no `documents` scope given — a namespace-wide
+// searches; others defer via a `workId` to poll). No gate calls. `INVALID_PARAMS` (a bad
+// `category` or `limit`) is a plain `ToolError`; the other two JSON error
+// shapes — `SCOPE_REQUIRED` (no `documents` scope given — a namespace-wide
 // grep would time out server-side) and `SEARCH_TIMEOUT` (the 5-minute poll deadline
 // elapsed) — both extending `ToolError` with the same `query` field, so one shared struct
 // covers both rather than `ToolError` itself. A genuine HTTP/network failure on the async
@@ -3246,6 +3247,13 @@ pub struct IrisSearchOk {
     pub inline_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<usize>,
+    /// The most matches Atelier was asked for (`max`), 200 unless the call set `limit`.
+    pub limit: u32,
+    /// `true` when Atelier stopped at `limit`, so there may be more matches than `results`.
+    pub limit_reached: bool,
+    /// Present only when `limit_reached` is `true`: what to do about it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// `SCOPE_REQUIRED` or `SEARCH_TIMEOUT` — both extend `ToolError` with the original `query`,
@@ -3263,6 +3271,8 @@ pub struct IrisSearchScopedError {
 pub enum IrisSearchResponse {
     Ok(IrisSearchOk),
     ScopedErr(IrisSearchScopedError),
+    /// `INVALID_PARAMS`: a `category` or `limit` out of range, refused before any search.
+    Err(ToolError),
 }
 
 // ── check_config ──────────────────────────────────────────────────────────────

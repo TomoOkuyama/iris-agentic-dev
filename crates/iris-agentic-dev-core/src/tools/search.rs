@@ -24,12 +24,40 @@ pub struct SearchParams {
     /// IRIS namespace. Defaults to the connection namespace (IRIS_NAMESPACE).
     #[serde(default)]
     pub namespace: Option<String>,
+    /// Most matches to return, 1 to 10000. Defaults to 200, Atelier's own default. A response
+    /// that reached it has `limit_reached: true`.
+    #[serde(default)]
+    pub limit: Option<u32>,
     /// If true, bypass the log store and return all results inline regardless of count.
     #[serde(default)]
     pub inline: bool,
     /// Route this call to a named registered IRIS instance. If omitted, uses the default connection.
     #[serde(default)]
     pub server: Option<String>,
+}
+
+/// Atelier's `max` when the parameter is absent.
+const DEFAULT_LIMIT: u32 = 200;
+const MAX_LIMIT: u32 = 10_000;
+/// What Atelier writes to `console` when it stopped at `max`.
+const LIMIT_REACHED: &str = "Maximum search limit reached";
+
+/// The query Atelier is sent. Its regex must match a whole line, so a pattern is wrapped to match
+/// anywhere in one; a pattern's own `^` and `$` still anchor it.
+fn atelier_query(query: &str, regex: bool) -> String {
+    if regex {
+        format!(".*(?:{query}).*")
+    } else {
+        query.to_string()
+    }
+}
+
+/// What shapes the response, the same whichever path the search took.
+#[derive(Clone, Copy)]
+struct Shape<'a> {
+    query: &'a str,
+    inline: bool,
+    limit: u32,
 }
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
@@ -68,6 +96,14 @@ pub async fn handle_iris_search(
             "error": format!("category must be CLS, MAC, INT, INC or ALL, not '{category}'"),
         }));
     }
+    let limit = p.limit.unwrap_or(DEFAULT_LIMIT);
+    if !(1..=MAX_LIMIT).contains(&limit) {
+        return crate::tools::err_result(serde_json::json!({
+            "success": false,
+            "error_code": "INVALID_PARAMS",
+            "error": format!("limit must be between 1 and {MAX_LIMIT}, not {limit}"),
+        }));
+    }
     // A scope is mandatory. Without one Atelier would grep the whole namespace and
     // time out server-side, returning nothing — an empty result that reads as
     // "term not found" when the term is simply out of a (nonexistent) scope.
@@ -91,13 +127,22 @@ pub async fn handle_iris_search(
     // unless the casing matched byte-for-byte. Always send `case` explicitly:
     // `case=0` = insensitive (the tool default), `case=1` = sensitive.
     let case_flag = if p.case_sensitive { 1 } else { 0 };
+    // Atelier reads `regex=1`; `regex=true` reads as off, which made every regex a literal search.
+    let regex_flag = if p.regex { 1 } else { 0 };
+    let atelier_q = atelier_query(&p.query, p.regex);
+    let shape = Shape {
+        query: &p.query,
+        inline: p.inline,
+        limit,
+    };
     let query_string = format!(
-        "query={}&regex={}&sys=false&category={}&files={}&case={}",
-        urlencoding::encode(&p.query),
-        p.regex,
+        "query={}&regex={}&sys=false&category={}&files={}&case={}&max={}",
+        urlencoding::encode(&atelier_q),
+        regex_flag,
         category,
         urlencoding::encode(&files),
         case_flag,
+        limit,
     );
 
     let sync_url = iris.versioned_ns_url(namespace, &format!("/action/search?{}", query_string));
@@ -133,25 +178,23 @@ pub async fn handle_iris_search(
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             // If we got a workId, it's async — fall through to polling
             if body["result"]["workId"].is_null() {
-                return parse_search_results(body, &p.query, p.inline, &log_store);
+                return parse_search_results(body, shape, &log_store);
             }
             let work_id = body["result"]["workId"].as_str().unwrap_or("").to_string();
-            poll_async_search(
-                iris, client, &work_id, namespace, &p.query, p.inline, &log_store,
-            )
-            .await
+            poll_async_search(iris, client, &work_id, namespace, shape, &log_store).await
         }
         _ => {
             // Timeout or error — fall back to async POST
             let post_url = iris.versioned_ns_url(namespace, "/action/search");
             let post_body = serde_json::json!({
-                "query": p.query,
-                "regex": p.regex,
+                "query": atelier_q,
+                "regex": regex_flag,
                 "sys": false,
                 "category": category,
                 "files": files,
                 // Always explicit — a missing `case` defaults to case-sensitive server-side.
                 "case": case_flag,
+                "max": limit,
             });
             let resp = client
                 .post(&post_url)
@@ -165,12 +208,9 @@ pub async fn handle_iris_search(
 
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             if let Some(work_id) = body["result"]["workId"].as_str() {
-                poll_async_search(
-                    iris, client, work_id, namespace, &p.query, p.inline, &log_store,
-                )
-                .await
+                poll_async_search(iris, client, work_id, namespace, shape, &log_store).await
             } else {
-                parse_search_results(body, &p.query, p.inline, &log_store)
+                parse_search_results(body, shape, &log_store)
             }
         }
     }
@@ -181,8 +221,7 @@ async fn poll_async_search(
     client: &reqwest::Client,
     work_id: &str,
     namespace: &str,
-    query: &str,
-    inline: bool,
+    shape: Shape<'_>,
     log_store: &Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let poll_url = iris.versioned_ns_url(
@@ -199,7 +238,7 @@ async fn poll_async_search(
                 "success": false,
                 "error_code": "SEARCH_TIMEOUT",
                 "error": "Async search did not complete within 5 minutes",
-                "query": query,
+                "query": shape.query,
             }));
         }
 
@@ -213,7 +252,7 @@ async fn poll_async_search(
             Ok(r) if r.status().is_success() => {
                 let body: serde_json::Value = r.json().await.unwrap_or_default();
                 if body["result"]["workId"].is_null() {
-                    return parse_search_results(body, query, inline, log_store);
+                    return parse_search_results(body, shape, log_store);
                 }
                 // Still pending — keep polling
             }
@@ -224,8 +263,7 @@ async fn poll_async_search(
 
 fn parse_search_results(
     body: serde_json::Value,
-    query: &str,
-    inline: bool,
+    shape: Shape<'_>,
     log_store: &Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     // Atelier's response shape for `/action/search` varies by API version:
@@ -270,13 +308,28 @@ fn parse_search_results(
         }
     }
     let total = results.len();
+    // Atelier reports the cut-off only in `console`; a count at the limit is one too.
+    let said_so = body["console"].as_array().is_some_and(|c| {
+        c.iter()
+            .filter_map(|l| l.as_str())
+            .any(|l| l.contains(LIMIT_REACHED))
+    });
+    let reached = said_so || total >= shape.limit as usize;
 
     let mut resp = serde_json::json!({
         "success": true,
-        "query": query,
+        "query": shape.query,
         "results": results,
         "total_found": total,
+        "limit": shape.limit,
+        "limit_reached": reached,
     });
+    if reached {
+        resp["warning"] = serde_json::json!(format!(
+            "Atelier stopped at {total} matches, the limit, so there may be more. Narrow \
+             `documents`, or raise `limit` (up to {MAX_LIMIT})."
+        ));
+    }
 
     // Progressive disclosure (027): truncate results when count exceeds threshold.
     let threshold = log_store::read_inline_threshold("IRIS_INLINE_SEARCH", 30);
@@ -284,7 +337,7 @@ fn parse_search_results(
         &mut resp,
         "results",
         threshold,
-        inline,
+        shape.inline,
         log_store,
         "iris_search",
     );
@@ -447,8 +500,17 @@ mod tests {
 
     // ── parse_search_results shape handling ───────────────────────────────────
     fn parse(body: serde_json::Value) -> serde_json::Value {
+        parse_with_limit(body, DEFAULT_LIMIT)
+    }
+
+    fn parse_with_limit(body: serde_json::Value, limit: u32) -> serde_json::Value {
         let log = Arc::new(Mutex::new(log_store::LogStore::new(200, 60)));
-        let r = parse_search_results(body, "q", true, &log).unwrap();
+        let shape = Shape {
+            query: "q",
+            inline: true,
+            limit,
+        };
+        let r = parse_search_results(body, shape, &log).unwrap();
         let text = r.content[0].as_text().unwrap().text.clone();
         serde_json::from_str(&text).unwrap()
     }
@@ -677,5 +739,64 @@ mod tests {
         assert_eq!(v["total_found"], 1);
         assert_eq!(v["results"][0]["line"], 99);
         assert_eq!(v["results"][0]["content"], "oldstyle");
+    }
+
+    // ── the match limit: Atelier stops at `max`, 200 when unsent ──────────────
+    fn matches(n: usize) -> serde_json::Value {
+        let m: Vec<_> = (1..=n)
+            .map(|i| serde_json::json!({"text": "x", "line": i, "member": "M"}))
+            .collect();
+        serde_json::json!([{"doc": "A.cls", "matches": m}])
+    }
+
+    /// Atelier said it stopped, so the result is not the whole answer, and the response says so.
+    #[test]
+    fn atelier_reporting_its_limit_marks_the_limit_reached() {
+        let body = serde_json::json!({
+            "console": ["", "Found 3 occurrence/s in 1 file/s. Maximum search limit reached."],
+            "result": matches(3),
+        });
+        let v = parse_with_limit(body, 500);
+        assert_eq!(v["limit_reached"], true, "{v}");
+        assert_eq!(v["limit"], 500);
+        let w = v["warning"].as_str().unwrap_or("");
+        assert!(w.contains("limit") && w.contains("documents"), "{w}");
+    }
+
+    /// A count that reaches the limit is a cut-off even when the console says nothing.
+    #[test]
+    fn a_count_at_the_limit_has_reached_it() {
+        let v = parse_with_limit(serde_json::json!({"result": matches(5)}), 5);
+        assert_eq!(v["limit_reached"], true, "{v}");
+        assert_eq!(v["total_found"], 5);
+    }
+
+    #[test]
+    fn a_count_under_the_limit_is_complete() {
+        let body = serde_json::json!({
+            "console": ["", "Found 4 occurrence/s in 1 file/s."],
+            "result": matches(4),
+        });
+        let v = parse_with_limit(body, 200);
+        assert_eq!(v["limit_reached"], false, "{v}");
+        assert!(v.get("warning").is_none(), "{v}");
+    }
+
+    #[test]
+    fn limit_is_a_parameter_and_defaults_to_atelier_s_own() {
+        let p: SearchParams =
+            serde_json::from_str(r#"{"query":"x","documents":["A.*.cls"],"limit":1000}"#).unwrap();
+        assert_eq!(p.limit, Some(1000));
+        let p: SearchParams = serde_json::from_str(r#"{"query":"x"}"#).unwrap();
+        assert_eq!(p.limit, None);
+        assert_eq!(DEFAULT_LIMIT, 200);
+    }
+
+    /// Atelier matches a regex against the whole line, so the pattern is wrapped to find it
+    /// anywhere in one, the way grep does. A literal search is sent as it is.
+    #[test]
+    fn a_regex_is_wrapped_to_match_anywhere_in_the_line() {
+        assert_eq!(atelier_query(r"##class\(%", true), r".*(?:##class\(%).*");
+        assert_eq!(atelier_query("Q.it", false), "Q.it");
     }
 }

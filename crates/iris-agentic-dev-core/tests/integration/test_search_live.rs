@@ -121,6 +121,12 @@ async fn test_search_regex_flag() {
 
     println!("test_search_regex_flag: {v}");
     assert_eq!(v["success"], true, "regex search should succeed: {v}");
+    // It passed for months while `regex=true` reached Atelier, which reads only `regex=1`, so
+    // every regex search was a literal one and found nothing.
+    assert!(
+        v["total_found"].as_u64().unwrap_or(0) > 0,
+        "Test.*Passes must match: {v}"
+    );
 }
 
 // ── T004: Case sensitive search ───────────────────────────────────────────────
@@ -245,4 +251,125 @@ async fn test_search_scope_required_error() {
         "SCOPE_REQUIRED",
         "should return SCOPE_REQUIRED error code: {v}"
     );
+}
+
+// ── The match limit ───────────────────────────────────────────────────────────
+// Atelier stops at `max` matches (200 when the parameter is absent) and says so only in its
+// `console`. Before this, iris_search sent no `max` and read no console, so a search that hit
+// the cap came back as `total_found: 200` with nothing to say it was cut off.
+
+const LIMIT_FIXTURE: &str = "IadSearchLimit.Fixture";
+
+/// A class whose `Marker` method holds 12 lines naming `IadLimitMarker`.
+async fn put_limit_fixture(iris: &IrisConnection, client: &reqwest::Client) {
+    let code = format!(
+        " Set c=##class(%Dictionary.ClassDefinition).%New() Set c.Name=\"{LIMIT_FIXTURE}\"\n \
+         Set m=##class(%Dictionary.MethodDefinition).%New() Set m.Name=\"Marker\",m.ClassMethod=1\n \
+         For i=1:1:12 {{ Do m.Implementation.WriteLine(\" Set x=\"\"IadLimitMarker\"_i_\"\"\"\") }}\n \
+         Do c.Methods.Insert(m) Set sc=c.%Save() Set:sc sc=$system.OBJ.Compile(\"{LIMIT_FIXTURE}\",\"ck-d\")\n \
+         Write $Select(sc:\"OK\",1:$system.Status.GetErrorText(sc))"
+    );
+    let out = iris
+        .execute_via_generator(&code, "USER", client)
+        .await
+        .expect("fixture");
+    assert!(out.contains("OK"), "fixture: {out}");
+}
+
+async fn drop_limit_fixture(iris: &IrisConnection, client: &reqwest::Client) {
+    let _ = iris
+        .execute_via_generator(
+            &format!(" Do $system.OBJ.Delete(\"{LIMIT_FIXTURE}\",\"-d\")"),
+            "USER",
+            client,
+        )
+        .await;
+}
+
+async fn search_marker(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    limit: Option<u32>,
+) -> serde_json::Value {
+    let mut args = serde_json::json!({
+        "query": "IadLimitMarker",
+        "documents": ["IadSearchLimit.*.cls"],
+        "namespace": "USER",
+        "inline": true
+    });
+    if let Some(l) = limit {
+        args["limit"] = l.into();
+    }
+    let p: SearchParams = serde_json::from_value(args).unwrap();
+    result_json(handle_iris_search(iris, client, p, make_log_store()).await)
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_search_cut_off_at_its_limit_says_so() {
+    let Some((iris, client)) = make_conn().await else {
+        panic!("IRIS_HOST unset; set IRIS_HOST=localhost IRIS_WEB_PORT=52780");
+    };
+    put_limit_fixture(&iris, &client).await;
+    let cut = search_marker(&iris, &client, Some(5)).await;
+    let whole = search_marker(&iris, &client, None).await;
+    drop_limit_fixture(&iris, &client).await;
+
+    assert_eq!(cut["total_found"], 5, "{cut}");
+    assert_eq!(cut["limit_reached"], true, "{cut}");
+    assert_eq!(cut["limit"], 5, "{cut}");
+    assert!(
+        cut["warning"].as_str().is_some_and(|w| w.contains("limit")),
+        "{cut}"
+    );
+
+    assert_eq!(whole["total_found"], 12, "{whole}");
+    assert_eq!(whole["limit_reached"], false, "{whole}");
+    assert_eq!(whole["limit"], 200, "{whole}");
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_limit_out_of_range_is_refused_before_any_search() {
+    let Some((iris, client)) = make_conn().await else {
+        panic!("IRIS_HOST unset; set IRIS_HOST=localhost IRIS_WEB_PORT=52780");
+    };
+    for bad in [0u32, 10_001] {
+        let p: SearchParams = serde_json::from_value(serde_json::json!({
+            "query": "x", "documents": ["A.*.cls"], "limit": bad
+        }))
+        .unwrap();
+        let r = handle_iris_search(&iris, &client, p, make_log_store()).await;
+        let text = r.unwrap().content[0].as_text().unwrap().text.clone();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["error_code"], "INVALID_PARAMS", "{bad}: {v}");
+    }
+}
+
+/// `regex: true` is a regex: `IadLimitMarker1[0-2]` matches lines 10 to 12 of the fixture, and
+/// the same text searched literally matches nothing.
+#[tokio::test]
+#[ignore]
+async fn a_regex_search_matches_by_pattern_anywhere_in_a_line() {
+    let Some((iris, client)) = make_conn().await else {
+        panic!("IRIS_HOST unset; set IRIS_HOST=localhost IRIS_WEB_PORT=52780");
+    };
+    put_limit_fixture(&iris, &client).await;
+    let mut found = Vec::new();
+    for regex in [true, false] {
+        let p: SearchParams = serde_json::from_value(serde_json::json!({
+            "query": "IadLimitMarker1[0-2]",
+            "documents": ["IadSearchLimit.*.cls"],
+            "namespace": "USER",
+            "regex": regex,
+            "inline": true
+        }))
+        .unwrap();
+        found.push(result_json(
+            handle_iris_search(&iris, &client, p, make_log_store()).await,
+        ));
+    }
+    drop_limit_fixture(&iris, &client).await;
+    assert_eq!(found[0]["total_found"], 3, "regex: {}", found[0]);
+    assert_eq!(found[1]["total_found"], 0, "literal: {}", found[1]);
 }

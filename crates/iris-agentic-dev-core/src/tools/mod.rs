@@ -6613,7 +6613,7 @@ Methods:
     }
 
     #[tool(
-        description = "Full-text search across IRIS documents via Atelier REST v2. Auto-upgrades to async polling for large namespaces. Supports regex, case sensitivity, category filter (CLS/MAC/INT/INC/ALL), and wildcard document scopes. Skill: objectscript-navigation. `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
+        description = "Full-text search across IRIS documents via Atelier REST v2. Auto-upgrades to async polling for large namespaces. Supports regex (matches anywhere in a line), case sensitivity, category filter (CLS/MAC/INT/INC/ALL), and wildcard document scopes. Returns at most `limit` matches (default 200, up to 10000); `limit_reached: true` means there may be more, so narrow `documents` or raise `limit`. Skill: objectscript-navigation. `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
         annotations(read_only_hint = true),
         output_schema = output_schemas::oneof_output_schema::<IrisSearchResponse>()
     )]

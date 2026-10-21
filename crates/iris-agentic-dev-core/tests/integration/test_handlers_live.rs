@@ -375,6 +375,7 @@ fn test_handle_iris_search_basic() {
             namespace: Some("USER".to_string()),
             inline: true,
             server: None,
+            limit: None,
         };
         let r = handle_iris_search(&conn, &client, p, make_log_store()).await;
         let v = result_json(r);
@@ -979,6 +980,7 @@ fn test_handle_iris_search_regex() {
             namespace: Some("USER".to_string()),
             inline: true,
             server: None,
+            limit: None,
         };
         let r = handle_iris_search(&conn, &client, p, make_log_store()).await;
         let v = result_json(r);
@@ -12090,6 +12092,7 @@ async fn test_search_sync_success_null_work_id() {
         namespace: Some("USER".to_string()),
         inline: true,
         server: None,
+        limit: None,
     };
 
     let result = handle_iris_search(&conn, &client, params, log).await;
@@ -12147,6 +12150,7 @@ async fn test_search_sync_with_wiremock_null_work_id() {
         namespace: Some("USER".to_string()),
         inline: true,
         server: None,
+        limit: None,
     };
 
     let result = handle_iris_search(&conn, &client, params, log).await;
@@ -12233,6 +12237,7 @@ async fn test_search_async_poll_with_wiremock() {
         namespace: Some("USER".to_string()),
         inline: true,
         server: None,
+        limit: None,
     };
 
     let result = handle_iris_search(&conn, &client, params, log).await;
